@@ -1,0 +1,9 @@
+dtek.daniell.pp.ua {
+    reverse_proxy dtek-web:3000 {
+        header_up X-Dtek-Client-IP {client_ip}
+        transport http {
+            response_header_timeout 5s
+            max_conns_per_host 64
+        }
+    }
+}

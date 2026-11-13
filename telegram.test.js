@@ -1,0 +1,209 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createTelegram} from './telegram.js';
+import {buildScheduleHtml} from './schedule-image.js';
+
+const fixedNow=new Date('2026-11-13T17:15:00Z');
+const day=(date='2026-11-13',off=false)=>({date,groups:{'1.1':Array(48).fill(!off),'2.1':Array(48).fill(true)}});
+const snapshot=()=>({region:'o',current:{days:[day(),day('2026-11-14')]},previous:null});
+const incoming=(id,text,chat=42)=>({update_id:id,message:{chat:{id:chat,type:'private'},text}});
+async function setup(t,options={}) {
+ const dir=await mkdtemp(join(tmpdir(),'dtek-telegram-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ let updates=[],failure=null;
+ const calls=[],images=[];
+ const fetchImpl=async(url,request)=>{
+  const method=url.split('/').at(-1);
+  const payload=request.body instanceof FormData?Object.fromEntries(request.body.entries()):JSON.parse(request.body);
+  calls.push({method,payload});
+  if(method==='getUpdates'){const result=updates;updates=[];return {ok:true,json:async()=>({ok:true,result})};}
+  if(failure&&failure.method===method)return {ok:false,status:failure.code,json:async()=>({ok:false,error_code:failure.code,parameters:{retry_after:failure.retryAfter}})};
+  if(method==='getChatAdministrators')return {ok:true,json:async()=>({ok:true,result:[{status:'creator',user:{id:10}}]})};
+  return {ok:true,json:async()=>({ok:true,result:method==='getMe'?{username:'test_bot'}:{message_id:1}})};
+ };
+ const base={token:'test-token',dataDir:dir,getSnapshot:snapshot,fetchImpl,renderImage:async options=>{images.push(options);return Buffer.from('png');},now:()=>fixedNow,chatIds:'',initialGroups:'',...options};
+ const bot=await createTelegram(base);t.after(()=>bot.stop());
+ return {bot,dir,calls,images,base,setUpdates:value=>{updates=value;},setFailure:value=>{failure=value;}};
+}
+
+test('group members can request graphs but only current admins can change the shared queue',async t=>{
+ const f=await setup(t);
+ const chat={id:-123,type:'supergroup'};
+ const msg=(id,user,text)=>({update_id:id,message:{chat,from:{id:user},text}});
+ const click=(id,user,data)=>({update_id:id,callback_query:{id:`cb-${id}`,from:{id:user},data,message:{chat,message_id:99}}});
+ f.setUpdates([msg(1,11,'/group 2.1'),msg(2,10,'/group'),click(3,11,'group:2.1'),click(4,10,'group:1.1')]);
+ await f.bot.pollOnce({timeout:0});
+ assert.equal(f.calls.filter(c=>c.method==='editMessageText').length,1);
+ assert.ok(f.calls.find(c=>c.method==='answerCallbackQuery'&&c.payload.show_alert));
+ assert.deepEqual(f.images.map(i=>i.selectedGroups),[['1.1'],['1.1']]);
+ f.setFailure({method:'getChatAdministrators',code:503});
+ f.setUpdates([msg(5,10,'/group 2.1'),msg(6,11,'/stop'),msg(7,11,'2.1'),msg(8,11,'/schedule'),msg(9,11,'/schedule')]);
+ await f.bot.pollOnce({timeout:0});
+ assert.equal(f.images.length,4);
+ const saved=JSON.parse(await readFile(join(f.dir,'telegram.json'),'utf8'));
+ assert.deepEqual(saved.subscriptions['-123'].groups,['1.1']);
+ assert.equal(saved.subscriptions['-123'].enabled,true);
+});
+
+test('Telegram is inert when no token is configured',async()=>{
+ const bot=await createTelegram({token:'',fetchImpl:()=>{throw Error('must not fetch');}});
+ assert.equal(bot.enabled,false);assert.equal(bot.getUsername(),null);
+ bot.start();await bot.notify(null,snapshot());await bot.stop();
+});
+
+test('bot username recovers after a failed startup identity request without restart',async t=>{
+ const f=await setup(t,{identityRetryMs:1});
+ f.setFailure({method:'getMe',code:503});
+ f.bot.start();
+ await new Promise(resolve=>setTimeout(resolve,50));
+ assert.equal(f.bot.getUsername(),null);
+ f.setFailure(null);
+ await new Promise(resolve=>setTimeout(resolve,1100));
+ assert.equal(f.bot.getUsername(),'test_bot');
+ assert.equal(f.calls.filter(call=>call.method==='getMe').length,2);
+ await f.bot.stop();
+});
+
+test('first start prompts group, selection persists with update offset across restart',async t=>{
+ const f=await setup(t);
+ f.setUpdates([incoming(100,'/start')]);await f.bot.pollOnce({timeout:0});
+ assert.equal(f.images.length,0);
+ assert.match(f.calls.find(call=>call.method==='sendMessage').payload.text,/Оберіть свою групу/);
+ assert.equal(f.calls.find(call=>call.method==='sendMessage').payload.reply_markup.inline_keyboard[0][0].callback_data,'group:1.1');
+ assert.equal(f.calls.find(call=>call.method==='sendMessage').payload.reply_markup.keyboard,undefined);
+ f.setUpdates([incoming(101,'1.1')]);await f.bot.pollOnce({timeout:0});
+ assert.equal(f.images.length,2);assert.deepEqual(f.images[0].selectedGroups,['1.1']);
+ assert.deepEqual(f.calls.filter(call=>call.method==='sendMessage').at(-1).payload.reply_markup,{remove_keyboard:true});
+ const saved=JSON.parse(await readFile(join(f.dir,'telegram.json'),'utf8'));
+ assert.deepEqual(saved.subscriptions['42'].groups,['1.1']);assert.equal(saved.offset,102);
+ assert.equal(JSON.stringify(saved).includes('test-token'),false);
+ const restarted=await createTelegram(f.base);t.after(()=>restarted.stop());
+ f.setUpdates([incoming(101,'2.1')]);await restarted.pollOnce({timeout:0});
+ assert.equal(f.calls.filter(call=>call.method==='getUpdates').at(-1).payload.offset,102);
+ assert.deepEqual(JSON.parse(await readFile(join(f.dir,'telegram.json'),'utf8')).subscriptions['42'].groups,['1.1']);
+});
+
+test('remembered group stays selected without reopening keyboard on start or schedule',async t=>{
+ const f=await setup(t,{chatIds:'42',initialGroups:'1.1'});
+ f.setUpdates([incoming(1,'/start')]);await f.bot.pollOnce({timeout:0});
+ const greeting=f.calls.find(call=>call.method==='sendMessage');
+ assert.match(greeting.payload.text,/Ваша група: 1\.1/);
+ assert.deepEqual(greeting.payload.reply_markup,{remove_keyboard:true});
+ assert.equal(f.calls.some(call=>call.payload.reply_markup?.keyboard),false);
+ f.calls.length=0;
+ f.setUpdates([incoming(2,'/schedule')]);await f.bot.pollOnce({timeout:0});
+ assert.equal(f.calls.filter(call=>call.method==='sendPhoto').length,2);
+ assert.equal(f.calls.some(call=>call.payload.reply_markup?.keyboard),false);
+ f.calls.length=0;
+ f.setUpdates([incoming(3,'/group')]);await f.bot.pollOnce({timeout:0});
+ const chooser=f.calls.find(call=>call.method==='sendMessage');
+ assert.ok(chooser.payload.reply_markup.inline_keyboard);
+ assert.equal(chooser.payload.reply_markup.keyboard,undefined);
+});
+
+test('inline group selection acknowledges callback, removes chooser and persists selection before photos',async t=>{
+ const f=await setup(t);
+ f.setUpdates([incoming(1,'/start')]);await f.bot.pollOnce({timeout:0});
+ f.calls.length=0;
+ f.setUpdates([{update_id:2,callback_query:{id:'callback-one',data:'group:1.1',message:{message_id:77,chat:{id:42,type:'private'}}}}]);
+ await f.bot.pollOnce({timeout:0});
+ const outgoing=f.calls.filter(call=>call.method!=='getUpdates');
+ assert.deepEqual(outgoing.map(call=>call.method),['answerCallbackQuery','editMessageText','sendPhoto','sendPhoto']);
+ assert.equal(outgoing[0].payload.callback_query_id,'callback-one');
+ assert.equal(outgoing[1].payload.message_id,77);
+ assert.deepEqual(outgoing[1].payload.reply_markup,{inline_keyboard:[]});
+ assert.match(outgoing[1].payload.text,/Збережено: група 1\.1/);
+ assert.deepEqual(JSON.parse(await readFile(join(f.dir,'telegram.json'),'utf8')).subscriptions['42'].groups,['1.1']);
+ assert.equal(outgoing.some(call=>call.payload.reply_markup?.keyboard),false);
+});
+
+test('inline all-groups selection is saved and chooser has no input keyboard',async t=>{
+ const f=await setup(t);
+ f.setUpdates([{update_id:1,callback_query:{id:'callback-all',data:'group:all',message:{message_id:78,chat:{id:42,type:'private'}}}}]);
+ await f.bot.pollOnce({timeout:0});
+ assert.deepEqual(JSON.parse(await readFile(join(f.dir,'telegram.json'),'utf8')).subscriptions['42'].groups,[]);
+ assert.deepEqual(f.calls.find(call=>call.method==='editMessageText').payload.reply_markup,{inline_keyboard:[]});
+ assert.deepEqual(f.images[0].selectedGroups,[]);
+});
+
+test('changed schedules send photos only to chats selecting affected groups',async t=>{
+ const f=await setup(t);
+ f.setUpdates([incoming(1,'/group 1.1',42),incoming(2,'/group 2.1',43)]);await f.bot.pollOnce({timeout:0});
+ f.calls.length=0;f.images.length=0;
+ const before=snapshot();const after=snapshot();after.current.days[0]=day('2026-11-13',true);
+ await f.bot.notify(before,after);await f.bot.flush();
+ assert.deepEqual(f.calls.filter(call=>call.method==='sendPhoto').map(call=>call.payload.chat_id),['42']);
+ assert.equal(f.images.length,1);assert.deepEqual(f.images[0].selectedGroups,['1.1']);
+ assert.deepEqual(f.images[0].previousDay,before.current.days[0]);
+});
+
+test('/stop clears queued schedules, disables future notifications, and /start restores selection',async t=>{
+ const f=await setup(t);f.setUpdates([incoming(1,'/group 1.1')]);await f.bot.pollOnce({timeout:0});
+ f.setFailure({method:'sendPhoto',code:429,retryAfter:60});
+ await f.bot.notify(snapshot(),{current:{days:[day('2026-11-13',true)]}});await f.bot.flush();
+ assert.equal(JSON.parse(await readFile(join(f.dir,'telegram.json'),'utf8')).queue.length,1);
+ f.setUpdates([incoming(2,'/stop')]);await f.bot.pollOnce({timeout:0});
+ const stopped=JSON.parse(await readFile(join(f.dir,'telegram.json'),'utf8'));
+ assert.equal(stopped.subscriptions['42'].enabled,false);assert.deepEqual(stopped.queue,[]);
+ f.setFailure(null);f.calls.length=0;
+ await f.bot.notify(snapshot(),{current:{days:[day('2026-11-13',true)]}});await f.bot.flush();
+ assert.equal(f.calls.filter(call=>call.method==='sendPhoto').length,0);
+ f.setUpdates([incoming(3,'/start')]);await f.bot.pollOnce({timeout:0});
+ assert.equal(f.calls.filter(call=>call.method==='sendPhoto').length,2);
+ assert.deepEqual(JSON.parse(await readFile(join(f.dir,'telegram.json'),'utf8')).subscriptions['42'].groups,['1.1']);
+});
+
+test('failed image delivery remains persisted and can retry after restart',async t=>{
+ const f=await setup(t,{chatIds:'42',initialGroups:'1.1'});
+ f.setFailure({method:'sendPhoto',code:429,retryAfter:60});
+ await f.bot.notify(null,snapshot());await f.bot.flush();
+ const path=join(f.dir,'telegram.json');const saved=JSON.parse(await readFile(path,'utf8'));
+ assert.equal(saved.queue.length,2);assert.equal(saved.queue[0].attempts,1);
+ saved.queue.forEach(event=>event.retryAt=0);await writeFile(path,JSON.stringify(saved));
+ f.setFailure(null);f.calls.length=0;
+ const restarted=await createTelegram(f.base);t.after(()=>restarted.stop());await restarted.flush();
+ assert.equal(f.calls.filter(call=>call.method==='sendPhoto').length,2);
+ assert.deepEqual(JSON.parse(await readFile(path,'utf8')).queue,[]);
+});
+
+test('blocked users are disabled without blocking delivery to other subscribers',async t=>{
+ const f=await setup(t,{chatIds:'42,43',initialGroups:'1.1'});
+ f.setFailure({method:'sendPhoto',code:403});
+ await f.bot.notify(null,snapshot());await f.bot.flush();
+ const state=JSON.parse(await readFile(join(f.dir,'telegram.json'),'utf8'));
+ assert.equal(state.subscriptions['42'].enabled,false);assert.equal(state.subscriptions['43'].enabled,false);
+ assert.deepEqual(state.queue,[]);
+ assert.deepEqual(f.calls.filter(call=>call.method==='sendPhoto').map(call=>call.payload.chat_id),['42','43']);
+});
+
+test('emergency status changes alert subscribers even when schedules are identical',async t=>{
+ const f=await setup(t,{chatIds:'42',initialGroups:'1.1'});
+ const before=snapshot(),after=snapshot();after.emergency={active:true,text:'Екстрені відключення: Одеський район.'};
+ await f.bot.notify(before,after);await f.bot.flush();
+ assert.equal(f.calls.filter(call=>call.method==='sendPhoto').length,0);
+ assert.match(f.calls.find(call=>call.method==='sendMessage').payload.text,/Одеський район/);
+});
+
+test('emergency metadata-only changes, inactive updates and unknown status do not alert',async t=>{
+ const f=await setup(t,{chatIds:'42',initialGroups:'1.1'});
+ for(const [beforeAlert,nextAlert] of [
+  [{active:true,text:'Екстрені відключення',areas:['Одеса'],checkedAt:'one'}, {active:true,text:'Екстрені відключення',areas:['Одеса'],checkedAt:'two',stale:true}],
+  [{active:false,text:'Попереднє повідомлення'},{active:false,text:'Інший текст',checkedAt:'two'}],
+  [{active:true,text:'Екстрені відключення'},{active:null,text:'Статус невідомий'}]
+ ]) {
+  const before=snapshot(),after=snapshot();before.emergency=beforeAlert;after.emergency=nextAlert;
+  await f.bot.notify(before,after);await f.bot.flush();
+ }
+ assert.equal(f.calls.filter(call=>call.method==='sendMessage'||call.method==='sendPhoto').length,0);
+});
+
+test('image HTML keeps unknown slots distinct, filters groups, and escapes source text',()=>{
+ const current=day();current.groups['1.1'][47]=null;
+ const html=buildScheduleHtml({day:current,selectedGroups:['1.1'],now:fixedNow,emergency:{active:true,text:'<script>alert(1)</script>'}});
+ assert.match(html,/cell unknown/);assert.match(html,/неповні дані/);
+ assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>/);
+ assert.doesNotMatch(html,/>2\.1</);assert.match(html,/>1\.1</);
+ assert.throws(()=>buildScheduleHtml({day:current,selectedGroups:['9.9']}));
+});

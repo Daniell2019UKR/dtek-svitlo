@@ -1,0 +1,15 @@
+services:
+  web:
+    ports: !reset []
+    environment:
+      TRUST_CADDY: "1"
+    networks:
+      default: {}
+      ingress:
+        aliases:
+          - dtek-web
+
+networks:
+  ingress:
+    external: true
+    name: dtek-ingress

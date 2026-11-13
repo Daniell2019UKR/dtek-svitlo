@@ -1,0 +1,32 @@
+services:
+  web:
+    environment:
+      DTEK_PROXY_URL: http://vpn-proxy:8888
+      DTEK_PROXY_HEALTH_URL: http://vpn-proxy:8889/health
+    depends_on:
+      vpn-proxy:
+        condition: service_started
+  vpn-proxy:
+    build: ./deploy/vpn
+    restart: unless-stopped
+    init: true
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/ppp:/dev/ppp
+    env_file: .env.vpn
+    expose:
+      - "8888"
+      - "8889"
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "2", "http://127.0.0.1:8889/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 2
