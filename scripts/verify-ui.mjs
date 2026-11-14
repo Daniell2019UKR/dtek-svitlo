@@ -33,7 +33,7 @@ try {
   checkedAt:'2026-11-13T20:15:00Z',lastSuccess:'2026-11-13T20:15:00Z'};
  await page.route(/\/api\/schedule(?:\?.*)?$/,route=>route.fulfill({json:fixture}));
  await page.goto(process.env.UI_URL||`http://127.0.0.1:${server.address().port}`);
- await page.waitForSelector('.track');
+ await page.waitForSelector('.track',{state:'attached'});
  assert.deepEqual(await page.locator('.day-heading h2').allTextContents(),['Сьогодні · 13 листопада','Завтра · 14 листопада']);
  assert.equal(await page.locator('.track').count(),24);
  assert.equal(await page.locator('.now').count(),12);
@@ -45,7 +45,7 @@ try {
  await page.selectOption('#group','2.1');
  assert.equal(await page.locator('.track').count(),2);
  assert.deepEqual(await page.locator('.group').allTextContents(),['2.1 •','2.1 •']);
- await page.reload();await page.waitForSelector('.track');
+ await page.reload();await page.waitForSelector('.track',{state:'attached'});
  assert.equal(await page.locator('#group').inputValue(),'2.1');
  assert.equal(await page.locator('.track').count(),2);
  assert.equal(await page.locator('a[href="https://github.com/Daniell2019UKR/esvitlo"]').count(),1);
@@ -74,7 +74,9 @@ try {
  await toggle.click();
  assert.equal(await intervals.isVisible(),true);
  await page.locator('#jump-tomorrow').click();
- assert.equal(new URL(page.url()).hash,'#tomorrow');
+ assert.equal(await page.locator('#tomorrow').isVisible(),true);
+ assert.equal(await page.locator('#today').isVisible(),false);
+ assert.equal(await page.locator('#jump-tomorrow').getAttribute('aria-current'),'true');
  await page.selectOption('#group','2.1');
 
  fixture.emergency={active:true,message:'У Одеському та Подільському районах введені екстрені відключення. <script>alert(1)</script>',areas:['Одеському та Подільському районах'],checkedAt:'2026-11-13T20:15:00Z'};
@@ -101,12 +103,12 @@ try {
  await page.reload();await page.waitForSelector('.cached');
  assert.match(await page.locator('#badge').textContent(),/збережені/);
  fixture.current.days=fixture.current.days.slice(0,1);
- await page.reload();await page.waitForSelector('.empty');
+ await page.reload();await page.waitForSelector('.empty',{state:'attached'});
  assert.match(await page.locator('.empty').textContent(),/на завтра/);
 
  fixture.current.days=['2026-11-13','2026-11-14'].map(date=>({date,groups}));
  fixture.current.retainedDates=[];
- await page.reload();await page.waitForSelector('.track');
+ await page.reload();await page.waitForSelector('.track',{state:'attached'});
  await page.clock.setFixedTime(new Date('2026-11-13T22:00:00Z'));
  await page.clock.runFor(30000);
  assert.deepEqual(await page.locator('.day-heading h2').allTextContents(),['Сьогодні · 14 листопада','Завтра · 15 листопада']);
@@ -115,11 +117,12 @@ try {
  groups['2.1'][34]=false;
  groups['2.1'][35]=true;
  fixture.previous.days[1].groups['2.1'][35]=false;
- await page.reload();await page.waitForSelector('.change-outline.change-restored');
+ await page.reload();await page.waitForSelector('.change-outline.change-restored',{state:'attached'});
  const touching=page.locator('.change-outline.change-added.joins-right');
  assert.equal(await touching.evaluate(el=>getComputedStyle(el).borderTopRightRadius),'0px');
  assert.equal(await touching.evaluate(el=>getComputedStyle(el).borderTopLeftRadius),'2px');
  assert.equal(await page.locator('.change-outline.change-restored').evaluate(el=>getComputedStyle(el).borderTopLeftRadius),'0px');
+ await page.setViewportSize({width:800,height:900});
  await page.locator('#today .day-chart').screenshot({path:'artifacts/mobile-outline-corners.png'});
  assert.deepEqual(errors,[]);
  await page.route('**/api/schedule?region=k',route=>route.fulfill({json:{...fixture,region:'k',source:'https://www.dtek-kem.com.ua/ua/shutdowns',current:null,previous:null,emergency:{active:false}}}));
@@ -131,7 +134,7 @@ try {
  assert.equal(await page.locator('#public-api').getAttribute('href'),'/api/v1/schedules?region=k');
  assert.equal(await page.locator('#group option[value="60.1"]').count(),1);
  await page.selectOption('#region-select','o');
- await page.waitForSelector('.track');
+ await page.waitForSelector('.track',{state:'attached'});
  assert.equal(await page.locator('#group').inputValue(),'2.1');
  if(!process.env.UI_URL){
   await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
@@ -140,7 +143,7 @@ try {
   await page.unroute(/\/api\/schedule(?:\?.*)?$/);
   await page.context().setOffline(true);
   await page.reload();
-  await page.waitForSelector('.track');
+  await page.waitForSelector('.track',{state:'attached'});
   assert.match(await page.locator('#notice').textContent(),/останній збережений графік/);
   assert.equal(await page.locator('#group').inputValue(),'2.1');
   await page.context().setOffline(false);

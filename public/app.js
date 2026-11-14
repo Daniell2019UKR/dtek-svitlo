@@ -4,6 +4,22 @@ import {scheduleDates, currentSlot, outageHours, changedRanges} from './dates.js
 const $=s=>document.querySelector(s);
 let data, region='', filter='', connectionError=false, requestVersion=0;
 const collapsedRows=new Set();
+let mobileDay='today';
+for(const link of document.querySelectorAll('.day-jump a')){
+ link.addEventListener('click',event=>{
+  event.preventDefault();
+  mobileDay=link.hash.slice(1);
+  selectMobileDay();
+ });
+}
+function selectMobileDay(){
+ $('#chart').dataset.mobileDay=mobileDay;
+ for(const link of document.querySelectorAll('.day-jump a')){
+  if(link.hash==='#'+mobileDay)link.setAttribute('aria-current','true');
+  else link.removeAttribute('aria-current');
+ }
+}
+selectMobileDay();
 function stored(key){try{return localStorage.getItem(key)||'';}catch{return '';}}
 function remember(key,value){try{localStorage.setItem(key,value);}catch{}}
 const requested=new URLSearchParams(location.search).get('region');
@@ -63,20 +79,28 @@ function renderMyGroup(dates, now, stale){
  setText('#my-group-note',data.emergency?.active?'Фактичні відключення можуть відрізнятися від графіка.':stale||retained.includes(dates[0])||(end>=48&&retained.includes(dates[1]))?'За збереженим графіком.':'');
 }
 
-function mobileIntervals(slots, previous){
- const list=document.createElement('div');list.className='mobile-intervals';
+function mobileIntervals(slots, previous, slot){
+ const list=document.createElement('ul');list.className='mobile-intervals';
  for(let start=0;start<slots.length;){
   const value=slots[start];
   const changed=Boolean(previous&&previous[start]!==value);
   let end=start+1;
   while(end<slots.length&&slots[end]===value&&Boolean(previous&&previous[end]!==value)===changed)end++;
-  if(value!==true||changed){
+  {
    const label=value===null?'Немає даних':value?'Світло є':'Світла немає';
-   const item=document.createElement('span');
+   const item=document.createElement('li');
    item.className=`interval-pill ${value===null?'unknown':value?'on':'off'}${changed?' interval-changed':''}`;
    const change=changed?(value===false?'Додано':value===true?'Скасовано':'Дані зникли'):'';
-   item.textContent=`${clock(start)}–${clock(end)}${change?' · '+change:''}`;
-   item.setAttribute('aria-label',`${item.textContent} · ${label}`);
+   const active=slot!==null&&slot>=start&&slot<end;
+   if(active)item.classList.add('interval-current');
+   const details=document.createElement('div');
+   const range=document.createElement('strong');range.textContent=`${clock(start)} – ${clock(end)}`;
+   const state=document.createElement('span');state.textContent=[label,active?'зараз':'',change].filter(Boolean).join(' · ');
+   details.append(range,state);
+   const duration=document.createElement('span');duration.className='interval-duration';
+   const minutes=(end-start)*30;
+   duration.textContent=[minutes>=60?`${Math.floor(minutes/60)} год`:'',minutes%60?'30 хв':''].filter(Boolean).join(' ');
+   item.append(details,duration);
    list.append(item);
   }
   start=end;
@@ -153,7 +177,7 @@ function renderDay(date, today, now){
   const remaining=slots.filter((_,i)=>i+1>slot);
   const off=outageHours(slots,slot);
   total.textContent=remaining.every(v=>v===null)?'немає даних':off?`${today?'ще ':''}${hoursText(off)} год${remaining.includes(null)?' + ?':''}`:remaining.includes(null)?'неповні дані':'без відкл.';
-  const intervals=mobileIntervals(slots,old);
+  const intervals=mobileIntervals(slots,old,today?slot:null);
   row.append(total,intervals);
   if(!filter&&intervals.childElementCount){
    const key=`${data.region}-${date}-${g}`;

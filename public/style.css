@@ -56,6 +56,18 @@
   padding:4px 8px;border:1px solid #394963;border-radius:9px;text-decoration:none;
   font-size:13px;color:#e0e8f2;background:#1c2637
  }
+ .day-jump a[aria-current]{background:#a9edc0;color:#10291b;border-color:#a9edc0;font-weight:700}
+ #chart[data-mobile-day="today"] #tomorrow,#chart[data-mobile-day="tomorrow"] #today{display:none}
+ .day-chart .axis-row,.day-chart .track,.card .legend{display:none}
+ .day-card{border-radius:22px}
+ .mobile-intervals:not(:empty){display:grid;gap:6px;margin:0;padding:0;list-style:none}
+ .interval-pill{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;
+  min-height:51px;padding:9px 11px;border-radius:13px;background:#203a30;color:#d6f5e2}
+ .interval-pill strong,.interval-pill div span{display:block}
+ .interval-pill strong{font-size:16px}
+ .interval-pill div span{margin-top:2px}
+ .interval-duration{white-space:nowrap;color:inherit;opacity:.85}
+ .interval-current{outline:1px solid currentColor;outline-offset:-1px}
  .day-card{scroll-margin-top:12px}
  .has-details:not(.expanded) .mobile-intervals{display:none}
  .day-chart .row.has-details{grid-template-columns:1fr auto auto;gap:4px 8px;padding:2px 0 8px}
