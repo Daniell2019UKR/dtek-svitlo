@@ -9,7 +9,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Перед запуском заповніть локальний `.env`. Параметр `REGION` задає регіон за замовчуванням. Сервер перевіряє всі п’ять джерел ДТЕК, а дані кожного регіону зберігає окремо.
+Перед запуском заповніть локальний `.env`. Параметр `REGION` задає регіон за замовчуванням, наприклад `o` або `mykolaiv`. Сервер перевіряє весь каталог і зберігає стан кожного регіону у файлі `state-<code>.json`. Див. [покриття та джерела](../README.md#покриття-та-джерела).
 
 Застосунок запускається непривілейованим користувачем `node`. Стандартний том `schedule-data` зберігає стан у `/app/data`. Якщо замінюєте том bind mount, забезпечте право запису користувачеві контейнера; не використовуйте `chmod 777` як спосіб налаштування сховища.
 
@@ -17,7 +17,8 @@ docker compose up -d --build
 docker compose ps
 docker compose logs --tail 100 web
 curl -f http://localhost:3000/health
-curl -f http://localhost:3000/api/schedule
+curl -f http://localhost:3000/api/v1/regions
+curl -i 'http://localhost:3000/api/v1/schedules?region=mykolaiv'
 ```
 
 `/health` перевіряє HTTP-сервер. Актуальність графіка визначайте окремо за `lastSuccess`, `checkedAt` та повідомленням про помилку у відповіді API.

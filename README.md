@@ -111,6 +111,7 @@ docker compose down
 ```sh
 curl 'https://yesvitlo.pp.ua/api/v1/schedules?group=1.1'
 curl 'https://yesvitlo.pp.ua/api/v1/schedules?group=1.1&format=slots'
+curl 'https://yesvitlo.pp.ua/api/v1/schedules?region=k&group=60.1'
 ```
 
 У типовій відповіді `off: [["08:00", "11:30"]]` означає планове відключення `08:00–11:30`. `unknown`, якщо присутній, містить інтервали без даних; решта часу має плановий стан «світло є». `format=slots` повертає початкові масиви з 48 значень `true` / `false` / `null` на групу.
