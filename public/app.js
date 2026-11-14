@@ -1,14 +1,33 @@
+import {regionNames,isRegion} from './regions.js';
 import {scheduleDates, currentSlot, outageHours, changedRanges} from './dates.js?v=outline-colors';
 
 const $=s=>document.querySelector(s);
-const names={o:'Одеса та область',k:'Київ',kr:'Київська область',dn:'Дніпропетровська область',d:'Донецька область'};
-let data, filter='',connectionError=false;
+let data, region='', filter='', connectionError=false, requestVersion=0;
 const collapsedRows=new Set();
-try {filter=localStorage.getItem('group')||'';} catch {}
-for(let i=0;i<12;i++){const g=`${Math.floor(i/2)+1}.${i%2+1}`;$('#group').add(new Option(g,g));}
-if (![...$('#group').options].some(option=>option.value===filter)) filter='';
-$('#group').value=filter;
-$('#group').onchange=e=>{filter=e.target.value;try {localStorage.setItem('group',filter);} catch {}render();};
+function stored(key){try{return localStorage.getItem(key)||'';}catch{return '';}}
+function remember(key,value){try{localStorage.setItem(key,value);}catch{}}
+const requested=new URLSearchParams(location.search).get('region');
+region=isRegion(requested)?requested:isRegion(stored('region'))?stored('region'):'';
+const regionSelect=$('#region-select');
+for(const [code,name] of Object.entries(regionNames))regionSelect.add(new Option(name,code));
+if(region)regionSelect.value=region;
+for(let i=0;i<12;i++){const g=Math.floor(i/2)+1+'.'+(i%2+1);$('#group').add(new Option(g,g));}
+function restoreGroup(code, legacy=false){
+ filter=stored('group:'+code)||(legacy?stored('group'):'');
+ if(![...$('#group').options].some(option=>option.value===filter))filter='';
+ $('#group').value=filter;
+}
+if(region)restoreGroup(region);
+$('#group').onchange=e=>{filter=e.target.value;if(region)remember('group:'+region,filter);render();};
+regionSelect.onchange=()=>{
+ region=regionSelect.value;remember('region',region);restoreGroup(region);
+ data=null;$('#chart').replaceChildren();$('#emergency').hidden=true;$('#my-group').hidden=true;
+ $('#region').textContent=regionNames[region];$('#source').removeAttribute('href');
+ $('#public-api').href='/api/v1/schedules?region='+region;
+ $('#notice').textContent='Завантажуємо графік…';$('#badge').textContent='Очікуємо дані';$('#badge').classList.remove('emergency-badge');
+ $('#emergency-check').textContent='';$('#updated').textContent='';$('#api-status').textContent='';
+ void load();
+};
 const time=v=>v?new Date(v).toLocaleString('uk-UA',{timeZone:'Europe/Kyiv',dateStyle:'short',timeStyle:'short'}):'—';
 const clock=slot=>`${String(Math.floor(slot/2)).padStart(2,'0')}:${slot%2?'30':'00'}`;
 const hoursText=hours=>new Intl.NumberFormat('uk-UA',{maximumFractionDigits:2}).format(hours);
@@ -132,7 +151,7 @@ function renderDay(date, today, now){
   const intervals=mobileIntervals(slots,old);
   row.append(total,intervals);
   if(!filter&&intervals.childElementCount){
-   const key=`${date}-${g}`;
+   const key=`${data.region}-${date}-${g}`;
    intervals.id=`intervals-${key}`;
    row.classList.add('has-details');
    const toggle=document.createElement('button');toggle.type='button';toggle.className='group-details';
@@ -154,7 +173,7 @@ function renderDay(date, today, now){
 
 function render(){
  if(!data)return;
- $('#region').textContent=names[data.region]||data.region;$('#source').href=data.source;
+ $('#region').textContent=regionNames[data.region]||data.region;$('#source').href=data.source;$('#public-api').href='/api/v1/schedules?region='+data.region;
  $('#notice').textContent=connectionError?'Немає зв’язку із сервером. Повторюємо спробу автоматично.':data.error||'';
  const now=new Date();const dates=scheduleDates(now);
  renderEmergency(now);
@@ -177,7 +196,18 @@ function render(){
  if(focused)document.querySelector(`[aria-controls="${CSS.escape(focused)}"]`)?.focus({preventScroll:true});
 }
 async function load(){
- try{const r=await fetch('/api/schedule');if(!r.ok)throw Error();data=await r.json();connectionError=false;render();}
- catch{connectionError=true;if(data)render();else $('#notice').textContent='Немає зв’язку із сервером. Повторюємо спробу автоматично.';}
+ const version=++requestVersion;
+ try{
+  const r=await fetch('/api/schedule'+(region?'?region='+encodeURIComponent(region):''));
+  if(!r.ok)throw Error('Schedule unavailable');
+  const next=await r.json();
+  if(version!==requestVersion)return;
+  if(!region){region=next.region;regionSelect.value=region;restoreGroup(region,true);}
+  data=next;connectionError=false;render();
+ }catch{
+  if(version!==requestVersion)return;
+  connectionError=true;
+  if(data)render();else $('#notice').textContent='Немає зв’язку із сервером. Повторюємо спробу автоматично.';
+ }
 }
 load();setInterval(load,15000);setInterval(render,30000);

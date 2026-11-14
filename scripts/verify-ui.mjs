@@ -6,7 +6,7 @@ import http from 'node:http';
 const server=http.createServer(async(req,res)=>{
  try {
   const path=new URL(req.url,'http://localhost').pathname;
-  const files={'/':'index.html','/app.js':'app.js','/dates.js':'dates.js','/style.css':'style.css','/brand/logo.svg':'brand/logo.svg','/brand/favicon.svg':'brand/favicon.svg'};
+  const files={'/':'index.html','/app.js':'app.js','/dates.js':'dates.js','/regions.js':'regions.js','/style.css':'style.css','/brand/logo.svg':'brand/logo.svg','/brand/favicon.svg':'brand/favicon.svg'};
   if(!files[path]) {res.writeHead(404);res.end();return;}
   res.writeHead(200,{'Content-Type':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.svg')?'image/svg+xml':'text/html; charset=utf-8'});
   res.end(await readFile(new URL(`../public/${files[path]}`,import.meta.url)));
@@ -29,7 +29,7 @@ try {
   api:{refreshIntervalSeconds:120,nextRefreshAt:'2026-11-13T20:17:00Z',endpoint:'/api/v1/schedules'},
   telegramEnabled:true,telegramUsername:'dtekschedule_bot',
   checkedAt:'2026-11-13T20:15:00Z',lastSuccess:'2026-11-13T20:15:00Z'};
- await page.route('**/api/schedule',route=>route.fulfill({json:fixture}));
+ await page.route(/\/api\/schedule(?:\?.*)?$/,route=>route.fulfill({json:fixture}));
  await page.goto(process.env.UI_URL||`http://127.0.0.1:${server.address().port}`);
  await page.waitForSelector('.track');
  assert.deepEqual(await page.locator('.day-heading h2').allTextContents(),['Сьогодні · 13 листопада','Завтра · 14 листопада']);
@@ -120,5 +120,15 @@ try {
  assert.equal(await page.locator('.change-outline.change-restored').evaluate(el=>getComputedStyle(el).borderTopLeftRadius),'0px');
  await page.locator('#today .day-chart').screenshot({path:'artifacts/mobile-outline-corners.png'});
  assert.deepEqual(errors,[]);
+ await page.route('**/api/schedule?region=k',route=>route.fulfill({json:{...fixture,region:'k',source:'https://www.dtek-kem.com.ua/ua/shutdowns',current:null,previous:null,emergency:{active:false}}}));
+ await page.selectOption('#region-select','k');
+ await page.waitForSelector('#today .empty');
+ assert.equal(await page.locator('#region').textContent(),'Київ');
+ assert.equal(await page.locator('#group').inputValue(),'');
+ assert.equal(await page.locator('#emergency').isVisible(),false);
+ assert.equal(await page.locator('#public-api').getAttribute('href'),'/api/v1/schedules?region=k');
+ await page.selectOption('#region-select','o');
+ await page.waitForSelector('.track');
+ assert.equal(await page.locator('#group').inputValue(),'2.1');
  console.log('UI passed: both dates, persistent group filter, GitHub/bot links, mobile layout without horizontal scrolling, emergency and stale warning, cached/unpublished days, Kyiv midnight; no browser errors.');
 } finally {await browser.close();server.close();}

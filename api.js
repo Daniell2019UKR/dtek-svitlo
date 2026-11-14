@@ -38,20 +38,24 @@ export function schedulesResponse(url, snapshot, options = {}) {
   const group=url.searchParams.get('group');
   const date=url.searchParams.get('date');
   const parameters=[...url.searchParams.keys()];
-  if(parameters.some(key=>!['date','group','format'].includes(key))||new Set(parameters).size!==parameters.length)return fail(400,'Use unique date, group or format parameters');
+  if(parameters.some(key=>!['region','date','group','format'].includes(key))||new Set(parameters).size!==parameters.length)return fail(400,'Use unique region, date, group or format parameters');
   const format=url.searchParams.get('format')??'compact';
   if(!['compact','slots'].includes(format))return fail(400,'Invalid format; expected compact or slots');
   if (group !== null && !groups.includes(group)) return fail(400,'Invalid group; expected 1.1–6.2');
   if (date !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`)) || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10)!==date)) return fail(400,'Invalid date; expected YYYY-MM-DD');
   const validDates=scheduleDates(new Date(now));
   let days=(snapshot.current?.days??[]).filter(day=>validDates.includes(day.date));
-  if (!days.length) return fail(503,'No saved schedule for today or tomorrow');
+  if (!days.length) {
+    const result=fail(503,'No saved schedule for today or tomorrow');
+    result.body=JSON.stringify({error:'No saved schedule for today or tomorrow',region:snapshot.region,source:snapshot.source,emergency:snapshot.emergency,nextRefreshAt:snapshot.api.nextRefreshAt});
+    return result;
+  }
   if (date) days=days.filter(day=>day.date===date);
   if (!days.length) return fail(404,'Schedule for this date has not been published');
   if (group) days=days.map(day=>({...day,groups:{[group]:day.groups[group]}}));
   const seconds=Math.max(0,Math.ceil((Date.parse(snapshot.api.nextRefreshAt)-now)/1000))||0;
   const stale=Boolean(snapshot.error || !snapshot.lastSuccess || now-Date.parse(snapshot.lastSuccess)>Math.max(300000,snapshot.api.refreshIntervalSeconds*2500));
-  const key=JSON.stringify([validDates,date,group,format,stale]);
+  const key=JSON.stringify([snapshot.region,validDates,date,group,format,stale]);
   let cached=options.cache?.get(key);
   if(!cached){
   const payload={version:1,format,region:snapshot.region,timeZone:'Europe/Kyiv',generatedAt:snapshot.current.receivedAt,

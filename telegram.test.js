@@ -22,6 +22,18 @@ const fixedNow=new Date('2026-11-13T17:15:00Z');
 const day=(date='2026-11-13',off=false)=>({date,groups:{'1.1':Array(48).fill(!off),'2.1':Array(48).fill(true)}});
 const snapshot=()=>({region:'o',current:{days:[day(),day('2026-11-14')]},previous:null});
 const incoming=(id,text,chat=42)=>({update_id:id,message:{chat:{id:chat,type:'private'},text}});
+
+test('regional alerts and graph requests stay within the selected region',async t=>{
+ const f=await setup(t,{getSnapshot:region=>({...snapshot(),region})});
+ f.setUpdates([incoming(1,'/group 1.1',42),incoming(2,'/region k',43),incoming(3,'/group 1.1',43)]);
+ await f.bot.pollOnce({timeout:0});
+ assert.deepEqual(f.images.map(image=>image.region),['o','o','k','k']);
+ f.calls.length=0;
+ const before={...snapshot(),region:'k',emergency:{active:false}};
+ await f.bot.notify(before,{...before,emergency:{active:true,kind:'unplanned',message:'Оголошення київського оператора'}});
+ await f.bot.flush();
+ assert.deepEqual(f.calls.filter(call=>call.method==='sendMessage').map(call=>call.payload.chat_id),['43']);
+});
 async function setup(t,options={}) {
  const dir=await mkdtemp(join(tmpdir(),'dtek-telegram-'));t.after(()=>rm(dir,{recursive:true,force:true}));
  let updates=[],failure=null;

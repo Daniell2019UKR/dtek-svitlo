@@ -45,6 +45,16 @@ test('HTTP API reads one saved snapshot; clients never trigger upstream parsing'
   assert.match(preflight.headers.get('access-control-allow-headers'),/If-None-Match/);
   const internal=await (await fetch(`http://127.0.0.1:${port}/api/schedule`)).json();
   assert.equal(internal.telegramEnabled,false);assert.equal('pending' in internal,false);
+  const catalog=await (await fetch(new URL('/api/v1/regions',url))).json();
+  assert.deepEqual(catalog.regions.map(region=>region.code),['o','k','kr','dn','d']);
+  assert.equal((await fetch(url+'?region=o&region=k')).status,400);
+  assert.equal((await fetch(url+'?region=constructor')).status,400);
+  const kyiv=await (await fetch(new URL('/api/schedule?region=k',url))).json();
+  assert.equal(kyiv.region,'k');
+  assert.equal(kyiv.current,null);
+  const unavailable=await fetch(url+'?region=k');
+  assert.equal(unavailable.status,503);
+  assert.equal((await unavailable.json()).region,'k');
  }finally{
   child.kill();await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',resolve);});
   await rm(dir,{recursive:true,force:true});

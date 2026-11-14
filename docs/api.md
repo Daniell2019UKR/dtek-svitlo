@@ -14,9 +14,9 @@ GET /api/v1/schedules
 
 ```sh
 curl -i 'https://yesvitlo.pp.ua/api/v1/schedules'
-curl -i 'https://yesvitlo.pp.ua/api/v1/schedules?group=1.1'
+curl -i 'https://yesvitlo.pp.ua/api/v1/schedules?region=o&group=1.1'
 curl -i 'https://yesvitlo.pp.ua/api/v1/schedules?date=2026-11-14&group=1.1'
-curl -i 'https://yesvitlo.pp.ua/api/v1/schedules?group=1.1&format=slots'
+curl -i 'https://yesvitlo.pp.ua/api/v1/schedules?region=o&group=1.1&format=slots'
 ```
 
 Дата в останньому прикладі ілюстративна: замініть її на сьогодні або завтра за київським часом.
@@ -27,7 +27,7 @@ curl -i 'https://yesvitlo.pp.ua/api/v1/schedules?group=1.1&format=slots'
 | `group` | `1.1`, `1.2`, …, `6.2` | Залишити одну підчергу. Без параметра повертаються всі групи. |
 | `format` | `compact` або `slots` | Типово `compact`: часові інтервали та спільні профілі груп. `slots` повертає сумісний формат із 48 значеннями на групу. |
 
-Установка обслуговує регіон із серверної змінної `REGION`. Довільний регіон через query-параметр не вибирається. Історичного архіву цей маршрут не надає: активне вікно — сьогодні та завтра, а не всі колись отримані дати.
+Каталог `GET /api/v1/regions` повертає `defaultRegion` і масив `regions` із полями `code`, `name` та `source`. Передайте `region=o|k|kr|dn|d` у запиті графіка. Без параметра застосовується `REGION`. Графіки та оголошення мають окремий кеш для кожного регіону. У разі `503` відповідь теж містить поле `emergency`. Історичного архіву цей маршрут не надає: активне вікно — сьогодні та завтра, а не всі колись отримані дати.
 
 ### Компактна відповідь за замовчуванням
 

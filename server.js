@@ -7,9 +7,11 @@ import {shutdownsPages} from './vendor/constants.js';
 import {schedulesResponse} from './api.js';
 import {createTransportSelector} from './transport.js';
 import {createTelegram} from './telegram.js';
+import {regionNames,isRegion} from './public/regions.js';
 
-const region=process.env.REGION||'o';
-if(!shutdownsPages[region])throw Error('Unknown REGION');
+const defaultRegion=process.env.REGION||'o';
+const regions=Object.keys(regionNames);
+if(!isRegion(defaultRegion))throw Error('Unknown REGION');
 const intervalSeconds=Number(process.env.POLL_INTERVAL_SECONDS||120);
 if(!Number.isFinite(intervalSeconds)||intervalSeconds<30||intervalSeconds>3600)throw Error('POLL_INTERVAL_SECONDS must be between 30 and 3600');
 const retrySeconds=Number(process.env.VPN_RETRY_SECONDS||60);
@@ -17,25 +19,42 @@ if(!Number.isFinite(retrySeconds)||retrySeconds<10)throw Error('VPN_RETRY_SECOND
 const dir=process.env.DATA_DIR||'./data';
 await mkdir(dir,{recursive:true});
 const empty=()=>({current:null,previous:null,checkedAt:null,lastSuccess:null,error:null,emergency:{active:null,message:null,areas:[],checkedAt:null,stale:true}});
-let state=empty();
-try{state={...state,...JSON.parse(await readFile(`${dir}/state.json`,'utf8'))};}catch(error){if(error.code!=='ENOENT')throw error;}
-if(state.current?.region&&state.current.region!==region)state=empty();
-delete state.pending; // Telegram has its own durable queue/subscription store.
-const save=async()=>{await writeFile(`${dir}/state.tmp`,JSON.stringify(state));await rename(`${dir}/state.tmp`,`${dir}/state.json`);};
+const states=new Map();
+const fileFor=region=>dir+'/state-'+region;
+let legacy=null;
+try{legacy=JSON.parse(await readFile(dir+'/state.json','utf8'));}
+catch(error){if(error.code!=='ENOENT')throw error;}
+const legacyRegion=legacy?.current?.region??defaultRegion;
+for(const region of regions){
+ let state={...empty(),...(region===legacyRegion?legacy:null)};
+ try{state={...state,...JSON.parse(await readFile(fileFor(region)+'.json','utf8'))};}
+ catch(error){if(error.code!=='ENOENT')throw error;}
+ if(state.current?.region&&state.current.region!==region)state=empty();
+ delete state.pending;
+ states.set(region,state);
+}
+async function save(region){
+ const path=fileFor(region);
+ await writeFile(path+'.tmp',JSON.stringify(states.get(region)));
+ await rename(path+'.tmp',path+'.json');
+}
 const hash=value=>createHash('sha256').update(JSON.stringify(value??null)).digest('hex');
-const selector=createTransportSelector({proxyUrl:process.env.DTEK_PROXY_URL,healthUrl:process.env.DTEK_PROXY_HEALTH_URL,retrySeconds});
-let nextRefreshAt=new Date().toISOString();
+const selectors=new Map(regions.map(region=>[region,createTransportSelector({proxyUrl:process.env.DTEK_PROXY_URL,healthUrl:process.env.DTEK_PROXY_HEALTH_URL,retrySeconds})]));
+const refreshTimes=new Map();
 let telegram;
-function snapshot(){
+function snapshot(region=defaultRegion){
+ const state=states.get(region);
  const {current,previous,checkedAt,lastSuccess,error,emergency}=state;
  return {current,previous,checkedAt,lastSuccess,error,emergency,region,source:shutdownsPages[region],telegramEnabled:Boolean(telegram?.enabled),telegramUsername:telegram?.getUsername()||null,
- api:{endpoint:'/api/v1/schedules',refreshIntervalSeconds:intervalSeconds,nextRefreshAt}};
+ api:{endpoint:'/api/v1/schedules',refreshIntervalSeconds:intervalSeconds,nextRefreshAt:refreshTimes.get(region)??null}};
 }
-telegram=await createTelegram({token:process.env.TELEGRAM_BOT_TOKEN,dataDir:dir,getSnapshot:snapshot,publicUrl:process.env.PUBLIC_URL||''});
+telegram=await createTelegram({token:process.env.TELEGRAM_BOT_TOKEN,dataDir:dir,defaultRegion,getSnapshot:snapshot,publicUrl:process.env.PUBLIC_URL||''});
 telegram.start();
 
-async function poll(){
- const oldSnapshot=snapshot();
+async function poll(region){
+ const state=states.get(region);
+ const selector=selectors.get(region);
+ const oldSnapshot=snapshot(region);
  let route=await selector.take();
  let noticeRead=false;
  try{
@@ -67,18 +86,17 @@ async function poll(){
   if(!noticeRead)state.emergency={...state.emergency,stale:true};
   console.error(`DTEK fetch failed via ${route.name}; saved schedules preserved.`);
  }
- await save();
- await telegram.notify(oldSnapshot,snapshot());
+ await save(region);
+ await telegram.notify(oldSnapshot,snapshot(region));
 }
 
-const files=Object.assign(Object.create(null),{'/':'index.html','/style.css':'style.css','/app.js':'app.js','/dates.js':'dates.js'});
+const files=Object.assign(Object.create(null),{'/':'index.html','/style.css':'style.css','/app.js':'app.js','/dates.js':'dates.js','/regions.js':'regions.js'});
 for(const asset of ['favicon.svg','favicon.png','logo.svg','avatar.png','logo-transparent.png'])files[`/brand/${asset}`]=`brand/${asset}`;
 const mimeTypes={js:'text/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',html:'text/html; charset=utf-8'};
 const assets=new Map(await Promise.all(Object.entries(files).map(async ([path,file])=>[path,{
  type:mimeTypes[file.split('.').at(-1)],body:await readFile(new URL(`./public/${file}`,import.meta.url))
 }])));
-const apiCache=new Map();
-let cacheGeneration;
+const apiCaches=new Map();
 const limits=new Map();
 let minute=-1, apiRequests=0;
 function allowApiRequest(req){
@@ -98,25 +116,40 @@ const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAl
  try{
   if(req.url.length>2048){res.writeHead(414);res.end();return;}
   const url=new URL(req.url,'http://localhost');const path=url.pathname;
-  if(path==='/api/v1/schedules')res.setHeader('Access-Control-Allow-Origin','*');
-  if((path==='/api/v1/schedules'||path==='/api/schedule')&&!allowApiRequest(req)){
+  const publicApi=path==='/api/v1/schedules'||path==='/api/v1/regions';
+  if(publicApi)res.setHeader('Access-Control-Allow-Origin','*');
+  if((publicApi||path==='/api/schedule')&&!allowApiRequest(req)){
    res.writeHead(429,{'Retry-After':String(60-Math.floor(Date.now()/1000)%60),'Cache-Control':'no-store'});res.end();return;
   }
   if(req.headers['transfer-encoding']||(req.headers['content-length']&&req.headers['content-length']!=='0')){
    res.writeHead(400,{'Connection':'close'});res.end();return;
   }
-  if(req.method==='OPTIONS'&&path==='/api/v1/schedules'){
+  if(req.method==='OPTIONS'&&publicApi){
    res.writeHead(204,{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, HEAD, OPTIONS','Access-Control-Allow-Headers':'If-None-Match'});res.end();return;
   }
   if(!['GET','HEAD'].includes(req.method)){res.writeHead(405,{'Allow':'GET, HEAD'});res.end();return;}
-  if(path==='/api/v1/schedules'){
-   const generation=JSON.stringify([state.checkedAt,nextRefreshAt]);
-   if(generation!==cacheGeneration){apiCache.clear();cacheGeneration=generation;}
-   const result=schedulesResponse(url,snapshot(),{ifNoneMatch:req.headers['if-none-match'],cache:apiCache});
-   res.writeHead(result.status,{...result.headers,'Access-Control-Expose-Headers':'ETag, Retry-After'});res.end(req.method==='HEAD'?'':result.body);return;
+  if(path==='/api/v1/regions'){
+   res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'public, max-age=300'});
+   res.end(req.method==='HEAD'?'':JSON.stringify({defaultRegion,regions:regions.map(code=>({code,name:regionNames[code],source:shutdownsPages[code]}))}));return;
   }
-  if(path==='/api/schedule'){
-   res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(req.method==='HEAD'?'':JSON.stringify(snapshot()));return;
+  if(path==='/api/v1/schedules'||path==='/api/schedule'){
+   const codes=url.searchParams.getAll('region');
+   const region=codes[0]??defaultRegion;
+   if(codes.length>1||!isRegion(region)){
+    res.writeHead(400,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+    res.end(JSON.stringify({error:'Invalid region; see /api/v1/regions'}));return;
+   }
+   const selected=snapshot(region);
+   if(path==='/api/v1/schedules'){
+    const generation=JSON.stringify([selected.checkedAt,selected.api.nextRefreshAt]);
+    let entry=apiCaches.get(region);
+    if(entry?.generation!==generation){entry={generation,cache:new Map()};apiCaches.set(region,entry);}
+    const result=schedulesResponse(url,selected,{ifNoneMatch:req.headers['if-none-match'],cache:entry.cache});
+    res.writeHead(result.status,{...result.headers,'Access-Control-Expose-Headers':'ETag, Retry-After'});
+    res.end(req.method==='HEAD'?'':result.body);return;
+   }
+   res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+   res.end(req.method==='HEAD'?'':JSON.stringify(selected));return;
   }
   if(path==='/health'){res.writeHead(200);res.end(req.method==='HEAD'?'':'ok');return;}
   const asset=assets.get(path);
@@ -127,12 +160,28 @@ const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAl
 });
 server.on('checkContinue',(_req,res)=>{res.writeHead(417,{'Connection':'close'});res.end();});
 server.listen(Number(process.env.PORT||3000),'0.0.0.0');
-let stopping=false,timer;
-async function loop(){
- const started=Date.now();nextRefreshAt=new Date(started+intervalSeconds*1000).toISOString();
- try{await poll();}catch{console.error('Polling state persistence failed; retrying next cycle.');}
- if(!stopping){const wait=Math.max(1000,intervalSeconds*1000-(Date.now()-started));nextRefreshAt=new Date(Date.now()+wait).toISOString();timer=setTimeout(loop,wait);timer.unref();}
+let stopping=false;
+const timers=new Map(), inFlight=new Set();
+function schedulePoll(region,delay){
+ if(stopping)return;
+ refreshTimes.set(region,new Date(Date.now()+delay).toISOString());
+ timers.set(region,setTimeout(()=>{
+  const started=Date.now();
+  refreshTimes.set(region,new Date(started+intervalSeconds*1000).toISOString());
+  const task=poll(region).catch(()=>console.error('Polling failed for '+region)).finally(()=>{
+   inFlight.delete(task);
+   schedulePoll(region,Math.max(1000,intervalSeconds*1000-(Date.now()-started)));
+  });
+  inFlight.add(task);
+ },delay));
 }
-loop();
-async function shutdown(){if(stopping)return;stopping=true;clearTimeout(timer);server.close();await telegram.stop();}
+[defaultRegion,...regions.filter(region=>region!==defaultRegion)].forEach((region,i)=>schedulePoll(region,i*3000));
+async function shutdown(){
+ if(stopping)return;
+ stopping=true;
+ for(const timer of timers.values())clearTimeout(timer);
+ server.close();
+ await Promise.allSettled(inFlight);
+ await telegram.stop();
+}
 process.on('SIGTERM',()=>{void shutdown();});process.on('SIGINT',()=>{void shutdown();});

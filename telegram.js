@@ -1,3 +1,4 @@
+import {regionNames,isRegion} from './public/regions.js';
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
@@ -16,7 +17,7 @@ const semanticAlert=alert=>({active:typeof alert?.active==='boolean'?alert.activ
  kind:alert?.kind??'emergency',text:alert?.text||alert?.message||'',areas:alert?.areas??[]});
 const clone=value=>JSON.parse(JSON.stringify(value));
 
-export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fetchImpl=fetch,renderImage=renderScheduleImage,now=()=>new Date(),chatIds=process.env.TELEGRAM_CHAT_IDS||'',initialGroups=process.env.TELEGRAM_GROUPS||'',identityRetryMs=60000}) {
+export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fetchImpl=fetch,renderImage=renderScheduleImage,now=()=>new Date(),chatIds=process.env.TELEGRAM_CHAT_IDS||'',initialGroups=process.env.TELEGRAM_GROUPS||'',identityRetryMs=60000,defaultRegion='o'}) {
  if(!token) return {enabled:false,getUsername:()=>null,start(){},async stop(){},async notify(){},async flush(){},async pollOnce(){}};
  await mkdir(dataDir,{recursive:true});
  const path=join(dataDir,'telegram.json');
@@ -34,6 +35,8 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
  const locked=operation=>{const task=serial.then(operation);serial=task.catch(()=>{});return task;};
  const persist=async()=>{await writeFile(`${path}.tmp`,JSON.stringify(state),{mode:0o600});await rename(`${path}.tmp`,path);};
  await persist();
+ const regionOf=subscription=>isRegion(subscription.region)?subscription.region:defaultRegion;
+ const regionKeyboard={inline_keyboard:Object.entries(regionNames).map(([code,name])=>[{text:name,callback_data:'region:'+code}])};
  const link=publicUrl?`\n${publicUrl}`:'';
  const enqueue=event=>state.queue.push({id:randomUUID(),attempts:0,createdAt:now().toISOString(),...event});
  const message=(chat,text,extra={})=>enqueue({type:'message',chat,text,...extra});
@@ -69,6 +72,19 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
   if(!count)message(chat,'На сьогодні та завтра ще немає збережених графіків.');
   else if(!current.days.some(day=>day.date===dates[1]))message(chat,'Графік на завтра ще не опублікований.');
  }
+ function chooseRegion(chat,subscription,code,chooserMessageId=null) {
+  if(!isRegion(code)){
+   message(chat,'Оберіть регіон.',{replyMarkup:regionKeyboard});return;
+  }
+  if(regionOf(subscription)!==code){
+   subscription.groups=null;
+   state.queue=state.queue.filter(event=>event.chat!==chat||!(event.type==='photo'||event.regionNotice));
+  }
+  subscription.region=code;
+  const text='Регіон: '+regionNames[code]+'. Оберіть чергу.';
+  if(chooserMessageId!==null)enqueue({type:'edit',chat,messageId:chooserMessageId,text,replyMarkup:{inline_keyboard:[]}});
+  message(chat,text,{replyMarkup:keyboard});
+ }
  function selectGroup(chat,subscription,value,chooserMessageId=null) {
   if(value==='Усі групи'||value.toLowerCase()==='all')subscription.groups=[];
   else if(allGroups.includes(value))subscription.groups=[value];
@@ -79,7 +95,7 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
   const confirmation=`Збережено: ${subscription.groups.length?`група ${subscription.groups.join(', ')}`:'усі групи'}. Надсилатиму зміни графіка картинками.`;
   if(chooserMessageId!==null)enqueue({type:'edit',chat,messageId:chooserMessageId,text:confirmation,replyMarkup:{inline_keyboard:[]}});
   else message(chat,confirmation,subscription.shared?{}:{replyMarkup:{remove_keyboard:true}});
-  enqueueSchedule(chat,subscription,getSnapshot());
+  enqueueSchedule(chat,subscription,getSnapshot(regionOf(subscription)));
  }
  async function processGroupCommand(update,incoming,text,command,args) {
   const chat=String(incoming.chat.id);
@@ -91,10 +107,10 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
    const saved=subscription??(state.subscriptions[chat]={groups:null,enabled:false});
    saved.lastGroupRequestAt=now().getTime();
    if(saved.groups===null)message(chat,'Адміністраторе, обери чергу відключень командою /group. Після цього всі учасники зможуть отримувати графік через /schedule.');
-   else enqueueSchedule(chat,saved,getSnapshot());
+   else enqueueSchedule(chat,saved,getSnapshot(regionOf(saved)));
    return;
   }
-  if(callback?!text.startsWith('group:'):!['/group','/stop'].includes(command))return;
+  if(callback?!/^(group|region):/.test(text):!['/region','/group','/stop'].includes(command))return;
   const actor=callback?.from??update.message?.from;
   let allowed=false;
   if(!actor?.is_bot&&Number.isSafeInteger(actor?.id)&&(callback||!incoming.sender_chat)){
@@ -110,7 +126,11 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
   }
   const saved=subscription??(state.subscriptions[chat]={groups:null,enabled:false});
   saved.shared=true;
-  if(callback){answer();selectGroup(chat,saved,text.slice('group:'.length),incoming.message_id??null);}
+  if(callback){
+   answer();
+   if(text.startsWith('region:'))chooseRegion(chat,saved,text.slice(7),incoming.message_id??null);
+   else selectGroup(chat,saved,text.slice(6),incoming.message_id??null);
+  }else if(command==='/region')chooseRegion(chat,saved,args[0]);
   else if(command==='/stop'){
    saved.enabled=false;
    state.queue=state.queue.filter(event=>event.chat!==chat||event.type!=='photo');
@@ -140,7 +160,11 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
      const key=String(chat);
      const subscription=state.subscriptions[key]??={groups:null,enabled:false};
      if(update.callback_query)enqueue({type:'callback',chat:key,callbackId:update.callback_query.id});
-     if(update.callback_query&&text.startsWith('group:')) {
+     if(update.callback_query&&text.startsWith('region:')) {
+      chooseRegion(key,subscription,text.slice(7),incoming.message_id??null);
+     } else if(command==='/region') {
+      chooseRegion(key,subscription,args[0]);
+     } else if(update.callback_query&&text.startsWith('group:')) {
       selectGroup(key,subscription,text.slice('group:'.length),incoming.message_id??null);
      } else if(command==='/stop') {
       subscription.enabled=false;
@@ -149,15 +173,15 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
      } else if(command==='/start') {
       subscription.enabled=true;
       message(key,subscription.groups===null?'Вітаю! Оберіть свою групу. Я запам’ятаю її та надсилатиму оновлені графіки картинками.':`Вітаю! Ваша група: ${subscription.groups.length?subscription.groups.join(', '):'усі'}. Сповіщення увімкнено.`,{replyMarkup:subscription.groups===null?keyboard:{remove_keyboard:true}});
-      if(subscription.groups!==null)enqueueSchedule(key,subscription,getSnapshot());
+      if(subscription.groups!==null)enqueueSchedule(key,subscription,getSnapshot(regionOf(subscription)));
      } else if(command==='/group') {
       if(args.length)selectGroup(key,subscription,args.join(' '));
       else message(key,`Оберіть групу.${subscription.groups!==null?` Зараз: ${subscription.groups.length?subscription.groups.join(', '):'усі групи'}.`:''}`,{replyMarkup:keyboard});
      } else if(command==='/schedule') {
       if(subscription.groups===null)message(key,'Спочатку оберіть свою групу.',{replyMarkup:keyboard});
-      else enqueueSchedule(key,subscription,getSnapshot());
+      else enqueueSchedule(key,subscription,getSnapshot(regionOf(subscription)));
      } else if(allGroups.includes(text)||text==='Усі групи')selectGroup(key,subscription,text);
-     else message(key,'/group — обрати групу\n/schedule — отримати графіки\n/stop — вимкнути сповіщення',{replyMarkup:subscription.groups===null?keyboard:{remove_keyboard:true}});
+     else message(key,'/region — обрати регіон\n/group — обрати групу\n/schedule — отримати графіки\n/stop — вимкнути сповіщення',{replyMarkup:subscription.groups===null?keyboard:{remove_keyboard:true}});
     }
     // Offset and command effects are committed together, before acknowledging updates.
     state.offset=update.update_id+1;
@@ -170,14 +194,15 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
    const old=unwrap(oldSnapshot),next=unwrap(nextSnapshot);
    const dates=scheduleDates(now());
    for(const [chat,subscription] of Object.entries(state.subscriptions)) {
-    if(!subscription.enabled)continue;
+    const region=nextSnapshot?.region??defaultRegion;
+    if(!subscription.enabled||regionOf(subscription)!==region)continue;
     const oldAlert=semanticAlert(alertOf(oldSnapshot)),nextAlert=semanticAlert(alertOf(nextSnapshot));
     // Freshness timestamps are not announcements. Unknown source status must not
     // be interpreted as an explicit end to an emergency.
     if(nextAlert.active!==null&&(oldAlert.active===true||nextAlert.active===true)&&digest(oldAlert)!==digest(nextAlert)) {
      const alert=alertOf(nextSnapshot);
      const heading=nextAlert.kind==='unplanned'?'Аварійні відключення':nextAlert.kind==='mixed'?'Аварійні та екстрені відключення':'Екстрені відключення';
-     message(chat,alert?.active?`⚠ ${heading}\n${nextAlert.text||'ДТЕК повідомив про відключення.'}${link}`:`ДТЕК прибрав попереднє попередження про відключення. Стан за адресою перевіряйте у ДТЕК.${link}`);
+     message(chat,alert?.active?`⚠ ${heading} · ${regionNames[region]}\n${nextAlert.text||'ДТЕК повідомив про відключення.'}${link}`:`ДТЕК прибрав попереднє попередження про відключення · ${regionNames[region]}. Стан за адресою перевіряйте у ДТЕК.${link}`,{regionNotice:region});
     }
     if(subscription.groups===null)continue;
     const selected=subscription.groups.length?subscription.groups:allGroups;
@@ -236,13 +261,15 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
  }
  async function run() {
   let nextIdentityAttemptAt=0;
+  let commandsReady=false;
   while(running) {
-   if(!state.username&&Date.now()>=nextIdentityAttemptAt) {
+   if((!state.username||!commandsReady)&&Date.now()>=nextIdentityAttemptAt) {
     nextIdentityAttemptAt=Date.now()+Math.max(1,identityRetryMs);
     try {
      const identity=await api('getMe',{});
      await locked(async()=>{state.username=identity.username||null;await persist();});
-     await api('setMyCommands',{commands:[{command:'start',description:'Увімкнути сповіщення'},{command:'group',description:'Обрати свою групу'},{command:'schedule',description:'Графіки на сьогодні та завтра'},{command:'stop',description:'Вимкнути сповіщення'}]}).catch(()=>{});
+     await api('setMyCommands',{commands:[{command:'start',description:'Увімкнути сповіщення'},{command:'region',description:'Обрати регіон'},{command:'group',description:'Обрати свою групу'},{command:'schedule',description:'Графіки на сьогодні та завтра'},{command:'stop',description:'Вимкнути сповіщення'}]});
+     commandsReady=true;
     } catch {if(running)console.warn('Telegram bot identity unavailable; will retry (credentials omitted).');}
    }
    if(!running)break;
