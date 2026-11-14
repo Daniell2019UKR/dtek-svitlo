@@ -1,5 +1,5 @@
-const cacheName='esvitlo-shell-v1';
-const shell=['/','/app.js?v=regional','/style.css?v=regional','/dates.js?v=outline-colors',
+const cacheName='esvitlo-shell-v2';
+const shell=['/','/app.js?v=mobile-app','/style.css?v=regional','/dates.js?v=outline-colors',
  '/regions.js?v=regional','/brand/logo.svg','/brand/favicon.svg','/manifest.webmanifest',
  '/brand/app-192.png','/brand/app-512.png'];
 const assets=new Set(shell.slice(1));
