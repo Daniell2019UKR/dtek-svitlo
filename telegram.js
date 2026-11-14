@@ -38,9 +38,10 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
  function keyboard(subscription){
   const groups=groupsFor(subscription);
   const width=groups.length>24?4:2;
+  const prefix=subscription.shared?`group:${regionOf(subscription)}:`:'group:';
   const rows=[];
-  for(let i=0;i<groups.length;i+=width)rows.push(groups.slice(i,i+width).map(group=>({text:group,callback_data:'group:'+group})));
-  return {inline_keyboard:[...rows,[{text:'Усі групи',callback_data:'group:all'}]]};
+  for(let i=0;i<groups.length;i+=width)rows.push(groups.slice(i,i+width).map(group=>({text:group,callback_data:prefix+group})));
+  return {inline_keyboard:[...rows,[{text:'Усі групи',callback_data:prefix+'all'}]]};
  }
  const regionKeyboard={inline_keyboard:Object.entries(regionNames).map(([code,name])=>[{text:name,callback_data:'region:'+code}])};
  const link=publicUrl?`\n${publicUrl}`:'';
@@ -71,14 +72,21 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
  }
  function enqueueSchedule(chat,subscription,snapshot) {
   const current=unwrap(snapshot);
-  if(!current?.days?.length) {message(chat,'Графік ще завантажується. Спробуйте /schedule трохи пізніше.');return;}
-  const dates=scheduleDates(now());
-  let count=0;
-  for(const day of current.days.filter(day=>dates.includes(day.date))) {
-   if(photo(chat,day,snapshot?.previous?.days?.find(before=>before.date===day.date),snapshot,subscription.groups,`⚡ Графік · ${day.date} · ${subscription.groups.length?`група ${subscription.groups.join(', ')}`:'усі групи'}`))count++;
+  const region=regionNames[regionOf(subscription)];
+  if(!current?.days?.length) {
+   const alert=alertOf(snapshot);
+   message(chat,`${region} · Графік наразі недоступний.${alert?.active?`\n⚠ ${alert.stale?'Збережене повідомлення: ':''}${alert.text||alert.message||'Діють обмеження електропостачання.'}`:''}`);
+   return;
   }
-  if(!count)message(chat,'Для вибраних черг немає збережених графіків на сьогодні та завтра. /group — змінити групу.');
-  else if(!current.days.some(day=>day.date===dates[1]))message(chat,'Графік на завтра ще не опублікований.');
+  const dates=scheduleDates(now());
+  const sent=new Set();
+  for(const day of current.days.filter(day=>dates.includes(day.date))) {
+   const cached=snapshot?.error||current.retainedDates?.includes(day.date);
+   const caption=`⚡ ${region} · ${day.date} · ${subscription.groups.length?`черга ${subscription.groups.join(', ')}`:'усі черги'}${cached?'\nЗбережений графік · актуальність не підтверджено.':''}`;
+   if(photo(chat,day,snapshot?.previous?.days?.find(before=>before.date===day.date),snapshot,subscription.groups,caption))sent.add(day.date);
+  }
+  if(!sent.size)message(chat,`${region} · Для вибраних черг немає графіків на сьогодні та завтра. /group — змінити чергу.`);
+  else if(sent.size===1)message(chat,`Графік на ${sent.has(dates[0])?'завтра':'сьогодні'} для вибраних черг наразі недоступний.`);
  }
  function chooseRegion(chat,subscription,code,chooserMessageId=null) {
   if(!isRegion(code)){
@@ -114,7 +122,7 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
    if(subscription?.lastGroupRequestAt&&now().getTime()-subscription.lastGroupRequestAt<30000)return;
    const saved=subscription??(state.subscriptions[chat]={groups:null,enabled:false});
    saved.lastGroupRequestAt=now().getTime();
-   if(saved.groups===null)message(chat,'Адміністраторе, обери чергу відключень командою /group. Після цього всі учасники зможуть отримувати графік через /schedule.');
+   if(saved.groups===null)message(chat,'Адміністраторе, обери регіон командою /region, а потім чергу. Після налаштування всі учасники зможуть отримувати графік через /schedule.');
    else enqueueSchedule(chat,saved,getSnapshot(regionOf(saved)));
    return;
   }
@@ -135,16 +143,21 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
   const saved=subscription??(state.subscriptions[chat]={groups:null,enabled:false});
   saved.shared=true;
   if(callback){
+   const [,code,value]=text.split(':');
+   if(text.startsWith('group:')&&(code!==regionOf(saved)||!value)){
+    answer('Цей список черг застарів. Відкрийте новий через /group.');
+    return;
+   }
    answer();
-   if(text.startsWith('region:'))chooseRegion(chat,saved,text.slice(7),incoming.message_id??null);
-   else selectGroup(chat,saved,text.slice(6),incoming.message_id??null);
+   if(text.startsWith('region:'))chooseRegion(chat,saved,code,incoming.message_id??null);
+   else selectGroup(chat,saved,value,incoming.message_id??null);
   }else if(command==='/region')chooseRegion(chat,saved,args[0]);
   else if(command==='/stop'){
    saved.enabled=false;
-   state.queue=state.queue.filter(event=>event.chat!==chat||event.type!=='photo');
+   state.queue=state.queue.filter(event=>event.chat!==chat||!(event.type==='photo'||event.regionNotice));
    message(chat,'Автоматичні сповіщення вимкнено. /schedule покаже збережений графік, /group увімкне сповіщення після вибору черги.');
   }else if(args.length)selectGroup(chat,saved,args.join(' '));
-  else message(chat,`Оберіть чергу для цього чату.${saved.groups!==null?` Зараз: ${saved.groups.join(', ')||'усі групи'}.`:''}`,{replyMarkup:keyboard(saved)});
+  else message(chat,`${regionNames[regionOf(saved)]} · Оберіть чергу для цього чату.${saved.groups!==null?` Зараз: ${saved.groups.join(', ')||'усі черги'}.`:''}`,{replyMarkup:keyboard(saved)});
  }
  async function processUpdates(updates) {
   await locked(async()=>{
@@ -219,7 +232,7 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
      const selected=subscription.groups.length?subscription.groups:sortGroups([...Object.keys(day.groups),...Object.keys(before?.groups??{})]);
      const changed=selected.filter(group=>digest(before?.groups?.[group]??null)!==digest(day.groups?.[group]??null));
      if(!changed.length)continue;
-     photo(chat,day,before,nextSnapshot,subscription.groups,`⚡ Графік оновлено · ${day.date}\nЗмінилися групи: ${changed.join(', ')}`);
+     photo(chat,day,before,nextSnapshot,subscription.groups,`⚡ Графік оновлено · ${regionNames[region]} · ${day.date}\nЗмінилися черги: ${changed.join(', ')}`);
     }
    }
    await persist();

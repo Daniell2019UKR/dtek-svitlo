@@ -57,7 +57,7 @@ test('group members can request graphs but only current admins can change the sh
  const chat={id:-123,type:'supergroup'};
  const msg=(id,user,text)=>({update_id:id,message:{chat,from:{id:user},text}});
  const click=(id,user,data)=>({update_id:id,callback_query:{id:`cb-${id}`,from:{id:user},data,message:{chat,message_id:99}}});
- f.setUpdates([msg(1,11,'/group 2.1'),msg(2,10,'/group'),click(3,11,'group:2.1'),click(4,10,'group:1.1')]);
+ f.setUpdates([msg(1,11,'/group 2.1'),msg(2,10,'/group'),click(3,11,'group:o:2.1'),click(4,10,'group:o:1.1')]);
  await f.bot.pollOnce({timeout:0});
  assert.equal(f.calls.filter(c=>c.method==='editMessageText').length,1);
  assert.ok(f.calls.find(c=>c.method==='answerCallbackQuery'&&c.payload.show_alert));
@@ -69,6 +69,20 @@ test('group members can request graphs but only current admins can change the sh
  const saved=JSON.parse(await readFile(join(f.dir,'telegram.json'),'utf8'));
  assert.deepEqual(saved.subscriptions['-123'].groups,['1.1']);
  assert.equal(saved.subscriptions['-123'].enabled,true);
+});
+
+test('shared chat switches operator queues and rejects buttons from the previous region',async t=>{
+ const kyiv={region:'k',current:{days:[{date:'2026-11-13',groups:{'60.1':Array(48).fill(true)}}],retainedDates:['2026-11-13']}};
+ const f=await setup(t,{getSnapshot:region=>region==='k'?kyiv:snapshot()});
+ const chat={id:-456,type:'supergroup'};
+ const msg=(id,user,text)=>({update_id:id,message:{chat,from:{id:user},text}});
+ const click=(id,data)=>({update_id:id,callback_query:{id:`cb-${id}`,from:{id:10},data,message:{chat,message_id:99}}});
+ f.setUpdates([msg(1,11,'/region k'),msg(2,10,'/region k'),click(3,'group:o:1.1'),click(4,'group:k:60.1'),msg(5,11,'/schedule')]);
+ await f.bot.pollOnce({timeout:0});
+ assert.ok(f.calls.some(c=>c.method==='sendMessage'&&c.payload.reply_markup?.inline_keyboard.flat().some(b=>b.callback_data==='group:k:60.1')));
+ assert.ok(f.calls.some(c=>c.method==='answerCallbackQuery'&&c.payload.callback_query_id==='cb-3'&&c.payload.show_alert));
+ assert.deepEqual(f.images.map(i=>[i.region,i.selectedGroups]),[['k',['60.1']],['k',['60.1']]]);
+ assert.ok(f.calls.filter(c=>c.method==='sendPhoto').every(c=>/Київ.*60\.1[\s\S]*Збережений графік/u.test(c.payload.caption)));
 });
 
 test('Telegram is inert when no token is configured',async()=>{
