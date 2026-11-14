@@ -12,6 +12,7 @@ const semanticAlert=alert=>({active:typeof alert?.active==='boolean'?alert.activ
  kind:alert?.kind??'emergency',text:alert?.text||alert?.message||'',areas:alert?.areas??[]});
 const clone=value=>JSON.parse(JSON.stringify(value));
 const messageDate=date=>date.split('-').reverse().join('-');
+const outageHeading=kind=>kind==='unplanned'?'Аварійні відключення':kind==='mixed'?'Аварійні та екстрені відключення':'Екстрені відключення';
 
 export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fetchImpl=fetch,renderImage=renderScheduleImage,now=()=>new Date(),chatIds=process.env.TELEGRAM_CHAT_IDS||'',initialGroups=process.env.TELEGRAM_GROUPS||'',identityRetryMs=60000,defaultRegion='o'}) {
  if(!token) return {enabled:false,getUsername:()=>null,start(){},async stop(){},async notify(){},async flush(){},async pollOnce(){}};
@@ -223,8 +224,7 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
     // be interpreted as an explicit end to an emergency.
     if(nextAlert.active!==null&&(oldAlert.active===true||nextAlert.active===true)&&digest(oldAlert)!==digest(nextAlert)) {
      const alert=alertOf(nextSnapshot);
-     const heading=nextAlert.kind==='unplanned'?'Аварійні відключення':nextAlert.kind==='mixed'?'Аварійні та екстрені відключення':'Екстрені відключення';
-     message(chat,alert?.active?`⚠ ${heading} · ${regionNames[region]}\n${nextAlert.text||'Оператор повідомив про відключення.'}${link}`:`Оператор прибрав попереднє попередження про відключення · ${regionNames[region]}. Стан за адресою перевіряйте в оператора.${link}`,{regionNotice:region});
+     message(chat,alert?.active?`⚠ ${outageHeading(nextAlert.kind)} · ${regionNames[region]}\n${nextAlert.text||'Оператор повідомив про відключення.'}${link}`:`Оператор зняв попередження: ${outageHeading(oldAlert.kind).toLowerCase()} · ${regionNames[region]}. Стан за адресою перевіряйте в оператора.${link}`,{regionNotice:region});
     }
     if(subscription.groups===null)continue;
     for(const day of next?.days||[]) {

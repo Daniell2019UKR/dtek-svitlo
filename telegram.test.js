@@ -236,6 +236,16 @@ test('emergency status changes alert subscribers even when schedules are identic
  assert.match(f.calls.find(call=>call.method==='sendMessage').payload.text,/Одеський район/);
 });
 
+test('cleared notices name the previous outage type',async t=>{
+ const f=await setup(t,{chatIds:'42',initialGroups:'1.1'});
+ for(const [kind,label] of [['unplanned','аварійні відключення'],['emergency','екстрені відключення'],['mixed','аварійні та екстрені відключення']]){
+  const before={...snapshot(),emergency:{active:true,kind}};
+  const after={...snapshot(),emergency:{active:false}};
+  await f.bot.notify(before,after);await f.bot.flush();
+  assert.ok(f.calls.filter(call=>call.method==='sendMessage').at(-1).payload.text.includes(`зняв попередження: ${label} · Одеса та область`));
+ }
+});
+
 test('emergency metadata-only changes, inactive updates and unknown status do not alert',async t=>{
  const f=await setup(t,{chatIds:'42',initialGroups:'1.1'});
  for(const [beforeAlert,nextAlert] of [
