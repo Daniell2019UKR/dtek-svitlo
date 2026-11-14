@@ -6,3 +6,5 @@ data/
 .browsers/
 artifacts/
 .git/
+*service-account*.json
+google-services.json

@@ -10,8 +10,10 @@ import {createTelegram} from './telegram.js';
 import {regionNames,isRegion} from './public/regions.js';
 import {regionalSources,scrapeRegional} from './regional-sources.js';
 import {scheduleDates} from './public/dates.js';
+import {createPush} from './push.js';
 
 const defaultRegion=process.env.REGION||'o';
+const sendPush=createPush();
 const regions=Object.keys(regionNames);
 if(!isRegion(defaultRegion))throw Error('Unknown REGION');
 const intervalSeconds=Number(process.env.POLL_INTERVAL_SECONDS||120);
@@ -97,7 +99,9 @@ async function poll(region){
   console.error(`Schedule fetch failed for ${region}; saved schedules preserved.`);
  }
  await save(region);
- await telegram.notify(oldSnapshot,snapshot(region));
+ const nextSnapshot=snapshot(region);
+ await Promise.all([telegram.notify(oldSnapshot,nextSnapshot),
+  sendPush(oldSnapshot,nextSnapshot,regionNames[region]).catch(()=>console.warn('FCM publication failed.'))]);
 }
 
 const files=Object.assign(Object.create(null),{'/':'index.html','/style.css':'style.css','/app.js':'app.js','/dates.js':'dates.js','/regions.js':'regions.js'});

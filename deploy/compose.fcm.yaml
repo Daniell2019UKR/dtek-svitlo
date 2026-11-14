@@ -1,0 +1,10 @@
+services:
+  web:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/fcm_credentials
+      FCM_PROJECT_ID: ${FCM_PROJECT_ID:?Set FCM_PROJECT_ID}
+    secrets:
+      - fcm_credentials
+secrets:
+  fcm_credentials:
+    file: ${FCM_CREDENTIALS_FILE:?Set FCM_CREDENTIALS_FILE}

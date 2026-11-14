@@ -5,3 +5,5 @@ node_modules/
 data/
 .browsers/
 artifacts/
+*service-account*.json
+google-services.json

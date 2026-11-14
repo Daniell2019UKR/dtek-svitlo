@@ -1,5 +1,9 @@
 # Розгортання та обслуговування
 
+## Push для Android
+
+Для FCM задайте `FCM_PROJECT_ID` і `FCM_CREDENTIALS_FILE` в локальному `.env` та додайте `-f deploy/compose.fcm.yaml` до чинної команди Compose. Файл ключа облікового запису має лежати поза репозиторієм. Він монтується в контейнер для читання користувачем застосунку. Для надсилання потрібен дозвіл `cloudmessaging.messages.create` у проєкті Firebase.
+
 ## Звичайний Docker Compose
 
 ```sh
