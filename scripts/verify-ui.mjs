@@ -52,6 +52,15 @@ try {
  assert.equal(await page.locator('#telegram a').getAttribute('href'),'https://t.me/dtekschedule_bot');
  assert.match(await page.locator('#api-status').textContent(),/21:17|22:17/);
  await page.setViewportSize({width:390,height:844});
+ await page.selectOption('#group','favorites');
+ const favorites=page.locator('#favorites input');
+ await favorites.nth(0).check();
+ await favorites.nth(2).check();
+ assert.equal(await page.locator('#today .track').count(),2);
+ await page.reload();
+ await page.waitForFunction(()=>document.querySelectorAll('#today .track').length===2);
+ assert.equal(await page.locator('#favorites input:checked').count(),2);
+ await page.selectOption('#group','2.1');
  assert.equal(await page.locator('#my-group-state').textContent(),'За графіком світло є');
  assert.equal(await page.locator('#my-group-next').textContent(),'Наступне відключення завтра о 00:00');
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);

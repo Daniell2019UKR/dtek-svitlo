@@ -4,6 +4,22 @@ import {scheduleDates, currentSlot, outageHours, changedRanges} from './dates.js
 const $=s=>document.querySelector(s);
 let data, region='', filter='', connectionError=false, requestVersion=0;
 const collapsedRows=new Set();
+let favorites=[];
+const favoriteList=$('#favorites');
+function showFavorites(groups){
+ try{favorites=JSON.parse(stored('favorites:'+region)||'null')??(filter?[filter]:[]);}catch{favorites=[];}
+ if(!Array.isArray(favorites))favorites=[];
+ favoriteList.replaceChildren(...groups.map(group=>{
+  const label=document.createElement('label');
+  const check=document.createElement('input');check.type='checkbox';check.checked=favorites.includes(group);
+  check.onchange=()=>{
+   favorites=check.checked?[...new Set([...favorites,group])]:favorites.filter(value=>value!==group);
+   remember('favorites:'+region,JSON.stringify(favorites));render();
+  };
+  label.append(check,group);return label;
+ }));
+ favoriteList.hidden=filter!=='favorites';
+}
 let mobileDay='today';
 for(const link of document.querySelectorAll('.day-jump a')){
  link.addEventListener('click',event=>{
@@ -30,16 +46,17 @@ if(region)regionSelect.value=region;
 function restoreGroup(code, legacy=false,snapshot={region:code}){
  const select=$('#group');
  const groups=availableGroups(snapshot);
- if([...select.options].slice(1).map(option=>option.value).join(',')!==groups.join(',')){
-  select.replaceChildren(new Option('Усі групи',''),...groups.map(group=>new Option(group,group)));
+ if([...select.options].slice(2).map(option=>option.value).join(',')!==groups.join(',')){
+  select.replaceChildren(new Option('Усі групи',''),new Option('Обрані черги','favorites'),...groups.map(group=>new Option(group,group)));
  }
  filter=stored('group:'+code)||(legacy?stored('group'):'');
  if(legacy&&filter)remember('group:'+code,filter);
- if(!groups.includes(filter))filter='';
+ if(filter!=='favorites'&&!groups.includes(filter))filter='';
+ showFavorites(groups);
  select.value=filter;
 }
 restoreGroup(region);
-$('#group').onchange=e=>{filter=e.target.value;if(region)remember('group:'+region,filter);render();};
+$('#group').onchange=e=>{filter=e.target.value;favoriteList.hidden=filter!=='favorites';if(region)remember('group:'+region,filter);render();};
 regionSelect.onchange=()=>{
  region=regionSelect.value;remember('region',region);restoreGroup(region);
  data=null;$('#chart').replaceChildren();$('#emergency').hidden=true;$('#my-group').hidden=true;
@@ -56,8 +73,8 @@ const setText=(selector,value)=>{const node=$(selector);if(node.textContent!==va
 
 function renderMyGroup(dates, now, stale){
  const card=$('#my-group');
- card.hidden=!filter;
- if(!filter)return;
+ card.hidden=!filter||filter==='favorites';
+ if(card.hidden)return;
  setText('#my-group-title',`Моя черга · ${filter}`);
  const days=data.current?.days??[];
  const today=days.find(day=>day.date===dates[0])?.groups[filter]??[];
@@ -138,6 +155,9 @@ function renderDay(date, today, now){
  const status=document.createElement('span');status.className='day-status'+(retained?' cached':'');
  status.textContent=retained?'Збережений графік · відсутній в останній відповіді':current?'Графік опубліковано':'Очікуємо публікацію';
  heading.append(status);section.append(heading);
+ if(filter==='favorites'&&!favorites.some(group=>Object.hasOwn(current?.groups??{},group))&&current){
+  const empty=document.createElement('p');empty.className='empty';empty.textContent='Оберіть черги над графіком.';section.append(empty);return section;
+ }
  if(!current){
   const empty=document.createElement('p');empty.className='empty';
   empty.textContent=`Графік на ${today?'сьогодні':'завтра'} наразі недоступний.`;
@@ -152,7 +172,7 @@ function renderDay(date, today, now){
  axis.innerHTML='<span class="axis-label">Група</span><div class="hours">'+Array.from({length:25},(_,i)=>`<span>${String(i).padStart(2,'0')}</span>`).join('')+`</div><span class="axis-label total">${today?'Залишилось без світла':'Всього без світла'}</span>`;
  chart.append(axis);
  for(const [g,slots] of Object.entries(current.groups)){
-  if(filter&&g!==filter)continue;
+  if(filter==='favorites'?!favorites.includes(g):filter&&g!==filter)continue;
   const old=previous?.groups[g];const changed=old&&slots.some((v,i)=>v!==old[i]);
   const row=document.createElement('div');row.className='row';
   const title=document.createElement('span');title.className='group'+(changed?' changed-text':'');title.textContent=g+(changed?' •':'');row.append(title);

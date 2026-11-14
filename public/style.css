@@ -81,3 +81,5 @@
 .change-outline.joins-left{border-top-left-radius:0;border-bottom-left-radius:0}
 .change-outline.joins-right{border-top-right-radius:0;border-bottom-right-radius:0}
 @media(max-width:900px){.change-outline{border-radius:2px}.change-outline.joins-left{border-top-left-radius:0;border-bottom-left-radius:0}.change-outline.joins-right{border-top-right-radius:0;border-bottom-right-radius:0}}
+
+#favorites{border:1px solid #354157;border-radius:12px;padding:10px;margin:0 0 12px}#favorites label{display:inline-flex;gap:6px;align-items:center;padding:8px}#favorites input{accent-color:#48df87}
