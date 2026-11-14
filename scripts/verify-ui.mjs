@@ -37,7 +37,7 @@ try {
  assert.equal(await page.locator('.now').count(),12);
  assert.equal(await page.locator('.change-outline').count(),96);
  assert.equal(await page.locator('.change-outline').first().evaluate(el=>getComputedStyle(el).borderTopStyle),'solid');
- assert.equal(await page.locator('.change-outline').first().evaluate(el=>getComputedStyle(el).borderTopColor),'rgb(87, 255, 141)');
+ assert.equal(await page.locator('.change-outline').first().evaluate(el=>getComputedStyle(el).borderTopColor),'rgb(255, 114, 125)');
  await mkdir('artifacts',{recursive:true});
  await page.screenshot({path:'artifacts/two-days-desktop.png',fullPage:true});
  await page.selectOption('#group','2.1');

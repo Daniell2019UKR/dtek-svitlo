@@ -7,14 +7,14 @@ import {createTelegram} from './telegram.js';
 import {buildScheduleHtml} from './schedule-image.js';
 import {changedRanges} from './public/dates.js';
 
-test('adjacent changed slots share a solid green outline on graph images',()=>{
+test('adjacent changed slots share outlines by state on graph images',()=>{
  const slots=[true,false,false,true,false,null];
  const before=Array(6).fill(true);
- assert.deepEqual(changedRanges(slots,before),[{start:1,end:3},{start:4,end:6}]);
+ assert.deepEqual(changedRanges(slots,before),[{start:1,end:3,state:false},{start:4,end:5,state:false},{start:5,end:6,state:null}]);
  assert.deepEqual(changedRanges(slots,null),[]);
  const html=buildScheduleHtml({day:{date:'2026-11-14',groups:{'1.1':slots}},previousDay:{groups:{'1.1':before}}});
- assert.equal((html.match(/class="change-outline"/g)||[]).length,2);
- assert.match(html,/border:3px solid #57ff8d/);
+ assert.equal((html.match(/class="change-outline /g)||[]).length,3);
+ assert.match(html,/change-added[^}]+#ff727d/);
  assert.doesNotMatch(html,/dashed/);
 });
 

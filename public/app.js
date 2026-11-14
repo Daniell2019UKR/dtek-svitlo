@@ -87,8 +87,8 @@ function renderDay(date, today, now){
    cell.title=`${date} · ${g} · ${clock(i)}–${clock(i+1)} · ${v===null?'Немає даних':v?'Світло є':'Світла немає'}${old&&old[i]!==v?' · Змінено':''}`;
    track.append(cell);
   });
-  for(const {start,end} of changedRanges(slots,old)){
-   const outline=document.createElement('span');outline.className='change-outline';
+  for(const {start,end,state} of changedRanges(slots,old)){
+   const outline=document.createElement('span');outline.className='change-outline '+(state===false?'change-added':state===true?'change-restored':'change-unknown');
    outline.style.left=`${start/48*100}%`;outline.style.width=`${(end-start)/48*100}%`;
    outline.setAttribute('aria-hidden','true');track.append(outline);
   }

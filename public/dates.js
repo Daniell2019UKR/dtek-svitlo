@@ -26,8 +26,8 @@ export function changedRanges(slots, previous) {
   for(let start=0;start<slots.length;){
     if(slots[start]===previous[start]){start++;continue;}
     let end=start+1;
-    while(end<slots.length&&slots[end]!==previous[end])end++;
-    ranges.push({start,end});
+    while(end<slots.length&&slots[end]===slots[start]&&slots[end]!==previous[end])end++;
+    ranges.push({start,end,state:slots[start]});
     start=end;
   }
   return ranges;
