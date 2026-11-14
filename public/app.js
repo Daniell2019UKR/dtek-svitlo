@@ -1,4 +1,4 @@
-import {scheduleDates, currentSlot, outageHours} from './dates.js';
+import {scheduleDates, currentSlot, outageHours, changedRanges} from './dates.js';
 
 const $=s=>document.querySelector(s);
 const names={o:'Одеса та область',k:'Київ',kr:'Київська область',dn:'Дніпропетровська область',d:'Донецька область'};
@@ -87,6 +87,11 @@ function renderDay(date, today, now){
    cell.title=`${date} · ${g} · ${clock(i)}–${clock(i+1)} · ${v===null?'Немає даних':v?'Світло є':'Світла немає'}${old&&old[i]!==v?' · Змінено':''}`;
    track.append(cell);
   });
+  for(const {start,end} of changedRanges(slots,old)){
+   const outline=document.createElement('span');outline.className='change-outline';
+   outline.style.left=`${start/48*100}%`;outline.style.width=`${(end-start)/48*100}%`;
+   outline.setAttribute('aria-hidden','true');track.append(outline);
+  }
   if(today){const line=document.createElement('div');line.className='now';line.style.left=`${slot/48*100}%`;track.append(line);}
   row.append(track);
   const total=document.createElement('span');total.className='total';

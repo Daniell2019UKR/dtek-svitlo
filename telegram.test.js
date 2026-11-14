@@ -5,6 +5,18 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createTelegram} from './telegram.js';
 import {buildScheduleHtml} from './schedule-image.js';
+import {changedRanges} from './public/dates.js';
+
+test('adjacent changed slots share a solid green outline on graph images',()=>{
+ const slots=[true,false,false,true,false,null];
+ const before=Array(6).fill(true);
+ assert.deepEqual(changedRanges(slots,before),[{start:1,end:3},{start:4,end:6}]);
+ assert.deepEqual(changedRanges(slots,null),[]);
+ const html=buildScheduleHtml({day:{date:'2026-11-14',groups:{'1.1':slots}},previousDay:{groups:{'1.1':before}}});
+ assert.equal((html.match(/class="change-outline"/g)||[]).length,2);
+ assert.match(html,/border:3px solid #57ff8d/);
+ assert.doesNotMatch(html,/dashed/);
+});
 
 const fixedNow=new Date('2026-11-13T17:15:00Z');
 const day=(date='2026-11-13',off=false)=>({date,groups:{'1.1':Array(48).fill(!off),'2.1':Array(48).fill(true)}});

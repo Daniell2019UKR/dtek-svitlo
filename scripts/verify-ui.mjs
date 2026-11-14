@@ -24,6 +24,7 @@ try {
  ]));
  let fixture={region:'o',source:'https://www.dtek-oem.com.ua/ua/shutdowns',
   current:{days:['2026-11-13','2026-11-14'].map(date=>({date,groups})),retainedDates:[]},
+  previous:{days:['2026-11-13','2026-11-14'].map(date=>({date,groups:Object.fromEntries(Object.keys(groups).map(group=>[group,Array(48).fill(true)]))}))},
   emergency:{active:false,message:null,areas:[],checkedAt:'2026-11-13T20:15:00Z'},
   api:{refreshIntervalSeconds:120,nextRefreshAt:'2026-11-13T20:17:00Z',endpoint:'/api/v1/schedules'},
   telegramEnabled:true,telegramUsername:'dtekschedule_bot',
@@ -34,11 +35,14 @@ try {
  assert.deepEqual(await page.locator('h2').allTextContents(),['Сьогодні · 13 листопада','Завтра · 14 листопада']);
  assert.equal(await page.locator('.track').count(),24);
  assert.equal(await page.locator('.now').count(),12);
+ assert.equal(await page.locator('.change-outline').count(),96);
+ assert.equal(await page.locator('.change-outline').first().evaluate(el=>getComputedStyle(el).borderTopStyle),'solid');
+ assert.equal(await page.locator('.change-outline').first().evaluate(el=>getComputedStyle(el).borderTopColor),'rgb(87, 255, 141)');
  await mkdir('artifacts',{recursive:true});
  await page.screenshot({path:'artifacts/two-days-desktop.png',fullPage:true});
  await page.selectOption('#group','2.1');
  assert.equal(await page.locator('.track').count(),2);
- assert.deepEqual(await page.locator('.group').allTextContents(),['2.1','2.1']);
+ assert.deepEqual(await page.locator('.group').allTextContents(),['2.1 •','2.1 •']);
  await page.reload();await page.waitForSelector('.track');
  assert.equal(await page.locator('#group').inputValue(),'2.1');
  assert.equal(await page.locator('.track').count(),2);

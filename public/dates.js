@@ -20,3 +20,15 @@ export function currentSlot(now = new Date()) {
 export function outageHours(slots, slot = 0) {
   return slots.reduce((sum, value, i) => sum + (value === false ? Math.max(0, Math.min(1, i + 1 - slot)) / 2 : 0), 0);
 }
+export function changedRanges(slots, previous) {
+  const ranges=[];
+  if(!previous)return ranges;
+  for(let start=0;start<slots.length;){
+    if(slots[start]===previous[start]){start++;continue;}
+    let end=start+1;
+    while(end<slots.length&&slots[end]!==previous[end])end++;
+    ranges.push({start,end});
+    start=end;
+  }
+  return ranges;
+}
