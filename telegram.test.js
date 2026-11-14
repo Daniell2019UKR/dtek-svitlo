@@ -250,6 +250,8 @@ test('emergency metadata-only changes, inactive updates and unknown status do no
  const f=await setup(t,{chatIds:'42',initialGroups:'1.1'});
  for(const [beforeAlert,nextAlert] of [
   [{active:true,text:'Екстрені відключення',areas:['Одеса'],checkedAt:'one'}, {active:true,text:'Екстрені відключення',areas:['Одеса'],checkedAt:'two',stale:true}],
+  [{active:true,kind:'unplanned',message:'Зникло світло в частині Подільського району.',areas:['Подільського району']},
+   {active:true,kind:'unplanned',text:'Зникло світло в частині Подільського\u200b району.',areas:[]}],
   [{active:false,text:'Попереднє повідомлення'},{active:false,text:'Інший текст',checkedAt:'two'}],
   [{active:true,text:'Екстрені відключення'},{active:null,text:'Статус невідомий'}]
  ]) {

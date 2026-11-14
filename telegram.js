@@ -8,8 +8,10 @@ import {renderScheduleImage} from './schedule-image.js';
 const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const unwrap=snapshot=>snapshot?.current??snapshot;
 const alertOf=snapshot=>snapshot?.emergency??unwrap(snapshot)?.emergency??null;
+const noticeText=alert=>alert?.text||alert?.message||'Оператор повідомив про відключення.';
+const noticeKey=alert=>noticeText(alert).normalize('NFC').replace(/[\u00ad\u200b-\u200f\u2060\ufeff]/gu,'').replace(/\s+/gu,' ').trim();
 const semanticAlert=alert=>({active:typeof alert?.active==='boolean'?alert.active:null,
- kind:alert?.kind??'emergency',text:alert?.text||alert?.message||'',areas:alert?.areas??[]});
+ kind:alert?.kind??'emergency',text:noticeText(alert),key:noticeKey(alert)});
 const clone=value=>JSON.parse(JSON.stringify(value));
 const messageDate=date=>date.split('-').reverse().join('-');
 const outageHeading=kind=>kind==='unplanned'?'Аварійні відключення':kind==='mixed'?'Аварійні та екстрені відключення':'Екстрені відключення';
@@ -222,7 +224,8 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
     const oldAlert=semanticAlert(alertOf(oldSnapshot)),nextAlert=semanticAlert(alertOf(nextSnapshot));
     // Freshness timestamps are not announcements. Unknown source status must not
     // be interpreted as an explicit end to an emergency.
-    if(nextAlert.active!==null&&(oldAlert.active===true||nextAlert.active===true)&&digest(oldAlert)!==digest(nextAlert)) {
+    const changedNotice=oldAlert.kind!==nextAlert.kind||oldAlert.key!==nextAlert.key;
+    if(nextAlert.active===true&&(oldAlert.active!==true||changedNotice)||nextAlert.active===false&&oldAlert.active===true) {
      const alert=alertOf(nextSnapshot);
      message(chat,alert?.active?`⚠ ${outageHeading(nextAlert.kind)} · ${regionNames[region]}\n${nextAlert.text||'Оператор повідомив про відключення.'}${link}`:`Оператор зняв попередження: ${outageHeading(oldAlert.kind).toLowerCase()} · ${regionNames[region]}. Стан за адресою перевіряйте в оператора.${link}`,{regionNotice:region});
     }
