@@ -6,9 +6,9 @@ import http from 'node:http';
 const server=http.createServer(async(req,res)=>{
  try {
   const path=new URL(req.url,'http://localhost').pathname;
-  const files={'/':'index.html','/app.js':'app.js','/dates.js':'dates.js','/style.css':'style.css'};
+  const files={'/':'index.html','/app.js':'app.js','/dates.js':'dates.js','/style.css':'style.css','/brand/logo.svg':'brand/logo.svg','/brand/favicon.svg':'brand/favicon.svg'};
   if(!files[path]) {res.writeHead(404);res.end();return;}
-  res.writeHead(200,{'Content-Type':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html; charset=utf-8'});
+  res.writeHead(200,{'Content-Type':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.svg')?'image/svg+xml':'text/html; charset=utf-8'});
   res.end(await readFile(new URL(`../public/${files[path]}`,import.meta.url)));
  } catch {res.writeHead(500);res.end();}
 });
@@ -32,7 +32,7 @@ try {
  await page.route('**/api/schedule',route=>route.fulfill({json:fixture}));
  await page.goto(process.env.UI_URL||`http://127.0.0.1:${server.address().port}`);
  await page.waitForSelector('.track');
- assert.deepEqual(await page.locator('h2').allTextContents(),['Сьогодні · 13 листопада','Завтра · 14 листопада']);
+ assert.deepEqual(await page.locator('.day-heading h2').allTextContents(),['Сьогодні · 13 листопада','Завтра · 14 листопада']);
  assert.equal(await page.locator('.track').count(),24);
  assert.equal(await page.locator('.now').count(),12);
  assert.equal(await page.locator('.change-outline').count(),96);
@@ -50,6 +50,8 @@ try {
  assert.equal(await page.locator('#telegram a').getAttribute('href'),'https://t.me/dtekschedule_bot');
  assert.match(await page.locator('#api-status').textContent(),/21:17|22:17/);
  await page.setViewportSize({width:390,height:844});
+ assert.equal(await page.locator('#my-group-state').textContent(),'За графіком світло є');
+ assert.equal(await page.locator('#my-group-next').textContent(),'Наступне відключення завтра о 00:00');
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  assert.equal(await page.locator('.scroll').evaluateAll(elements=>elements.every(el=>el.scrollWidth<=el.clientWidth)),true);
  assert.ok(await page.locator('.interval-pill.off').first().isVisible());
@@ -57,6 +59,21 @@ try {
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await page.setViewportSize({width:390,height:844});
  await page.screenshot({path:'artifacts/two-days-mobile.png',fullPage:true});
+ await page.selectOption('#group','');
+ const toggle=page.locator('#today .group-details').first();
+ const intervals=page.locator('#today .mobile-intervals').first();
+ assert.equal(await intervals.isVisible(),true);
+ await page.screenshot({path:'artifacts/all-groups-mobile.png'});
+ await toggle.click();
+ assert.equal(await toggle.getAttribute('aria-expanded'),'false');
+ assert.equal(await intervals.isVisible(),false);
+ await page.clock.runFor(30000);
+ assert.equal(await intervals.isVisible(),false);
+ await toggle.click();
+ assert.equal(await intervals.isVisible(),true);
+ await page.locator('#jump-tomorrow').click();
+ assert.equal(new URL(page.url()).hash,'#tomorrow');
+ await page.selectOption('#group','2.1');
 
  fixture.emergency={active:true,message:'У Одеському та Подільському районах введені екстрені відключення. <script>alert(1)</script>',areas:['Одеському та Подільському районах'],checkedAt:'2026-11-13T20:15:00Z'};
  await page.reload();await page.waitForSelector('#emergency:not([hidden])');
@@ -90,9 +107,18 @@ try {
  await page.reload();await page.waitForSelector('.track');
  await page.clock.setFixedTime(new Date('2026-11-13T22:00:00Z'));
  await page.clock.runFor(30000);
- assert.deepEqual(await page.locator('h2').allTextContents(),['Сьогодні · 14 листопада','Завтра · 15 листопада']);
+ assert.deepEqual(await page.locator('.day-heading h2').allTextContents(),['Сьогодні · 14 листопада','Завтра · 15 листопада']);
  assert.equal(await page.locator('.track').count(),1);
  assert.match(await page.locator('.empty').textContent(),/на завтра/);
+ groups['2.1'][34]=false;
+ groups['2.1'][35]=true;
+ fixture.previous.days[1].groups['2.1'][35]=false;
+ await page.reload();await page.waitForSelector('.change-outline.change-restored');
+ const touching=page.locator('.change-outline.change-added.joins-right');
+ assert.equal(await touching.evaluate(el=>getComputedStyle(el).borderTopRightRadius),'0px');
+ assert.equal(await touching.evaluate(el=>getComputedStyle(el).borderTopLeftRadius),'2px');
+ assert.equal(await page.locator('.change-outline.change-restored').evaluate(el=>getComputedStyle(el).borderTopLeftRadius),'0px');
+ await page.locator('#today .day-chart').screenshot({path:'artifacts/mobile-outline-corners.png'});
  assert.deepEqual(errors,[]);
  console.log('UI passed: both dates, persistent group filter, GitHub/bot links, mobile layout without horizontal scrolling, emergency and stale warning, cached/unpublished days, Kyiv midnight; no browser errors.');
 } finally {await browser.close();server.close();}

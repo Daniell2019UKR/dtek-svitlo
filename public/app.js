@@ -3,6 +3,7 @@ import {scheduleDates, currentSlot, outageHours, changedRanges} from './dates.js
 const $=s=>document.querySelector(s);
 const names={o:'Одеса та область',k:'Київ',kr:'Київська область',dn:'Дніпропетровська область',d:'Донецька область'};
 let data, filter='',connectionError=false;
+const collapsedRows=new Set();
 try {filter=localStorage.getItem('group')||'';} catch {}
 for(let i=0;i<12;i++){const g=`${Math.floor(i/2)+1}.${i%2+1}`;$('#group').add(new Option(g,g));}
 if (![...$('#group').options].some(option=>option.value===filter)) filter='';
@@ -12,6 +13,31 @@ const time=v=>v?new Date(v).toLocaleString('uk-UA',{timeZone:'Europe/Kyiv',dateS
 const clock=slot=>`${String(Math.floor(slot/2)).padStart(2,'0')}:${slot%2?'30':'00'}`;
 const hoursText=hours=>new Intl.NumberFormat('uk-UA',{maximumFractionDigits:2}).format(hours);
 const setText=(selector,value)=>{const node=$(selector);if(node.textContent!==value)node.textContent=value;};
+
+function renderMyGroup(dates, now, stale){
+ const card=$('#my-group');
+ card.hidden=!filter;
+ if(!filter)return;
+ setText('#my-group-title',`Моя черга · ${filter}`);
+ const days=data.current?.days??[];
+ const today=days.find(day=>day.date===dates[0])?.groups[filter]??[];
+ const tomorrow=days.find(day=>day.date===dates[1])?.groups[filter]??[];
+ const index=Math.floor(currentSlot(now));
+ const value=today[index];
+ setText('#my-group-state',value===true?'За графіком світло є':value===false?'За графіком світла немає':'Немає даних на цей час');
+ card.dataset.state=value===false?'off':value===true?'on':'unknown';
+ const slots=[...Array.from({length:48},(_,i)=>today[i]??null),...tomorrow];
+ let end=index+1;
+ while(end<slots.length&&slots[end]===value)end++;
+ let next='Наступний час поки невідомий';
+ if(typeof value==='boolean'&&typeof slots[end]==='boolean'){
+  const when=`${end>=48?'завтра ':''}о ${clock(end%48)}`;
+  next=value?`Наступне відключення ${when}`:`Очікується світло ${when}`;
+ }
+ setText('#my-group-next',next);
+ const retained=data.current?.retainedDates??[];
+ setText('#my-group-note',data.emergency?.active?'Фактичні відключення можуть відрізнятися від графіка.':stale||retained.includes(dates[0])||(end>=48&&retained.includes(dates[1]))?'За збереженим графіком.':'');
+}
 
 function mobileIntervals(slots, previous){
  const list=document.createElement('div');list.className='mobile-intervals';
@@ -24,8 +50,9 @@ function mobileIntervals(slots, previous){
    const label=value===null?'Немає даних':value?'Світло є':'Світла немає';
    const item=document.createElement('span');
    item.className=`interval-pill ${value===null?'unknown':value?'on':'off'}${changed?' interval-changed':''}`;
-   item.textContent=`${clock(start)}–${clock(end)}`;
-   item.setAttribute('aria-label',`${item.textContent} · ${label}${changed?' · Змінено':''}`);
+   const change=changed?(value===false?'Додано':value===true?'Скасовано':'Дані зникли'):'';
+   item.textContent=`${clock(start)}–${clock(end)}${change?' · '+change:''}`;
+   item.setAttribute('aria-label',`${item.textContent} · ${label}`);
    list.append(item);
   }
   start=end;
@@ -53,6 +80,7 @@ function renderEmergency(now){
 
 function renderDay(date, today, now){
  const section=document.createElement('section');section.className='day-card';
+ section.id=today?'today':'tomorrow';
  const heading=document.createElement('div');heading.className='day-heading';
  const title=document.createElement('h2');
  title.textContent=`${today?'Сьогодні':'Завтра'} · ${new Date(`${date}T12:00:00Z`).toLocaleDateString('uk-UA',{timeZone:'Europe/Kyiv',day:'numeric',month:'long'})}`;
@@ -87,8 +115,11 @@ function renderDay(date, today, now){
    cell.title=`${date} · ${g} · ${clock(i)}–${clock(i+1)} · ${v===null?'Немає даних':v?'Світло є':'Світла немає'}${old&&old[i]!==v?' · Змінено':''}`;
    track.append(cell);
   });
-  for(const {start,end,state} of changedRanges(slots,old)){
+  const changes=changedRanges(slots,old);
+  for(const [index,{start,end,state}] of changes.entries()){
    const outline=document.createElement('span');outline.className='change-outline '+(state===false?'change-added':state===true?'change-restored':'change-unknown');
+   if(changes[index-1]?.end===start)outline.classList.add('joins-left');
+   if(changes[index+1]?.start===end)outline.classList.add('joins-right');
    outline.style.left=`${start/48*100}%`;outline.style.width=`${(end-start)/48*100}%`;
    outline.setAttribute('aria-hidden','true');track.append(outline);
   }
@@ -98,7 +129,25 @@ function renderDay(date, today, now){
   const remaining=slots.filter((_,i)=>i+1>slot);
   const off=outageHours(slots,slot);
   total.textContent=remaining.every(v=>v===null)?'немає даних':off?`${today?'ще ':''}${hoursText(off)} год${remaining.includes(null)?' + ?':''}`:remaining.includes(null)?'неповні дані':'без відкл.';
-  row.append(total,mobileIntervals(slots,old));chart.append(row);
+  const intervals=mobileIntervals(slots,old);
+  row.append(total,intervals);
+  if(!filter&&intervals.childElementCount){
+   const key=`${date}-${g}`;
+   intervals.id=`intervals-${key}`;
+   row.classList.add('has-details');
+   const toggle=document.createElement('button');toggle.type='button';toggle.className='group-details';
+   toggle.setAttribute('aria-controls',intervals.id);
+   const update=()=>{
+    const open=!collapsedRows.has(key);
+    row.classList.toggle('expanded',open);
+    toggle.setAttribute('aria-expanded',String(open));
+    toggle.setAttribute('aria-label',`Інтервали черги ${g}`);
+    toggle.textContent=open?'Сховати ▴':'Інтервали ▾';
+   };
+   toggle.addEventListener('click',()=>{if(!collapsedRows.delete(key))collapsedRows.add(key);update();});
+   update();row.append(toggle);
+  }
+  chart.append(row);
  }
  return section;
 }
@@ -111,6 +160,8 @@ function render(){
  renderEmergency(now);
  const relevant=data.current?.days.some(day=>dates.includes(day.date));
  const stale=!data.lastSuccess||now-new Date(data.lastSuccess)>300000;
+ renderMyGroup(dates,now,stale||connectionError||Boolean(data.error));
+ setText('#jump-tomorrow',data.current?.days.some(day=>day.date===dates[1])?'Завтра':'Завтра · очікуємо');
  $('#badge').textContent=data.emergency?.active?outageTitle(data.emergency):connectionError||data.error||stale||!relevant?'Дані не оновлено':data.current?.retainedDates?.some(date=>dates.includes(date))?'Є збережені дані':'Актуальний графік';
  $('#badge').classList.toggle('emergency-badge',data.emergency?.active===true);
  $('#updated').textContent=`Перевірено: ${time(data.checkedAt)} · Отримано: ${time(data.lastSuccess)}`;
@@ -121,7 +172,9 @@ function render(){
   telegram.append('Отримуйте графіки картинками та сповіщення для своєї групи. ');
   const link=document.createElement('a');link.href=`https://t.me/${data.telegramUsername}`;link.target='_blank';link.rel='noopener';link.textContent='Відкрити бота ↗';telegram.append(link);
  }else telegram.textContent=data.telegramEnabled?'Telegram підключено. Відкрийте бота й виберіть свою групу для сповіщень.':'Для сповіщень власник сайту має підключити Telegram-бота в налаштуваннях сервера.';
+ const focused=document.activeElement?.closest('.group-details')?.getAttribute('aria-controls');
  $('#chart').replaceChildren(...dates.map((date,i)=>renderDay(date,i===0,now)));
+ if(focused)document.querySelector(`[aria-controls="${CSS.escape(focused)}"]`)?.focus({preventScroll:true});
 }
 async function load(){
  try{const r=await fetch('/api/schedule');if(!r.ok)throw Error();data=await r.json();connectionError=false;render();}
