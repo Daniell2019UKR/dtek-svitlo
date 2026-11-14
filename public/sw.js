@@ -1,4 +1,4 @@
-const cacheName='esvitlo-shell-v5';
+const cacheName='esvitlo-shell-v6';
 const shell=['/','/app.js?v=mobile-intervals','/style.css?v=mobile-intervals','/dates.js?v=outline-colors',
  '/regions.js?v=regional','/brand/logo.svg','/brand/favicon.svg','/manifest.webmanifest',
  '/brand/app-192.png','/brand/app-512.png'];
