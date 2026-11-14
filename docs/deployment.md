@@ -24,9 +24,9 @@ curl -f http://localhost:3000/api/schedule
 
 ## Домашнє розгортання
 
-Публічний сайт має адресу https://dtek.daniell.pp.ua/. Caddy та вебконтейнер використовують спільну Docker-мережу `dtek-ingress`. Застосунок слухає порт 3000 всередині Docker.
+Публічний сайт має адресу https://yesvitlo.pp.ua/. Caddy та вебконтейнер використовують спільну Docker-мережу `dtek-ingress`. Застосунок слухає порт 3000 всередині Docker.
 
-У серверному `.env` задайте `PUBLIC_URL=https://dtek.daniell.pp.ua` та `DTEK_DATA_PATH` зі шляхом до постійних даних.
+У серверному `.env` задайте `PUBLIC_URL=https://yesvitlo.pp.ua` та `DTEK_DATA_PATH` зі шляхом до постійних даних.
 
 ```sh
 docker network create dtek-ingress

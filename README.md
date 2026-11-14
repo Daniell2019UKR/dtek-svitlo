@@ -2,7 +2,7 @@
 
 Вебсайт і Telegram-бот для перегляду графіків відключень ДТЕК. Сервер регулярно отримує дані джерела, зберігає останній відомий графік і роздає його сайту та API. Клієнтам не потрібно самостійно парсити сайт ДТЕК.
 
-[Відкрити сайт](https://dtek.daniell.pp.ua/) · [Telegram-бот](https://t.me/dtekschedule_bot) · [API](docs/api.md) · [Розгортання](docs/deployment.md) · [Будова проєкту](docs/architecture.md)
+[Відкрити сайт](https://yesvitlo.pp.ua/) · [Telegram-бот](https://t.me/dtekschedule_bot) · [API](docs/api.md) · [Розгортання](docs/deployment.md) · [Будова проєкту](docs/architecture.md)
 
 ## Можливості
 
@@ -47,7 +47,7 @@ docker compose down
 | `REGION` | `o` — Одеська область; `k` — Київ; `kr` — Київська область; `dn` — Дніпропетровська; `d` — Донецька. Типово `o`. |
 | `PORT` | Порт доступу до сайту на хості, типово `3000`. Усередині Compose застосунок слухає `3000`. |
 | `DATA_DIR` | Каталог стану застосунку. Compose задає `/app/data` і підключає постійне сховище. |
-| `PUBLIC_URL` | Посилання на сайт у повідомленнях бота, наприклад `https://dtek.daniell.pp.ua`. |
+| `PUBLIC_URL` | Посилання на сайт у повідомленнях бота, наприклад `https://yesvitlo.pp.ua`. |
 | `POLL_INTERVAL_SECONDS` | Інтервал перевірок ДТЕК у секундах: типово `120`, допустимий діапазон `30–3600`. |
 | `DTEK_PROXY_URL` | Необов'язкова адреса HTTP-проксі для VPN-маршруту. Якщо задана, перевірки чергуються: напряму, через проксі, напряму тощо. |
 | `DTEK_PROXY_HEALTH_URL` | Необов'язковий маршрут перевірки VPN-проксі; у VPN Compose — `http://vpn-proxy:8889/health`. |
@@ -103,8 +103,8 @@ docker compose down
 - `/health` — перевірка роботи HTTP-сервера, відповідь `ok`. Цей маршрут не підтверджує доступність ДТЕК.
 
 ```sh
-curl 'https://dtek.daniell.pp.ua/api/v1/schedules?group=1.1'
-curl 'https://dtek.daniell.pp.ua/api/v1/schedules?group=1.1&format=slots'
+curl 'https://yesvitlo.pp.ua/api/v1/schedules?group=1.1'
+curl 'https://yesvitlo.pp.ua/api/v1/schedules?group=1.1&format=slots'
 ```
 
 У типовій відповіді `off: [["08:00", "11:30"]]` означає планове відключення `08:00–11:30`. `unknown`, якщо присутній, містить інтервали без даних; решта часу має плановий стан «світло є». `format=slots` повертає початкові масиви з 48 значень `true` / `false` / `null` на групу.

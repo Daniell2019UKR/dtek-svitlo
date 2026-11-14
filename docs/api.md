@@ -4,7 +4,7 @@ API читає останній збережений результат серв
 
 API приймає до 120 запитів за календарну хвилину від однієї IP-адреси і до 2400 сумарно. Якщо ліміт вичерпано, відповідь `429` містить `Retry-After` у секундах. Параметри `date`, `group` і `format` можна вказати по одному разу.
 
-Базова адреса API — `https://dtek.daniell.pp.ua`. Для власного розгортання підставте його адресу.
+Базова адреса API — `https://yesvitlo.pp.ua`. Для власного розгортання підставте його адресу.
 
 ## Отримати графіки
 
@@ -13,10 +13,10 @@ GET /api/v1/schedules
 ```
 
 ```sh
-curl -i 'https://dtek.daniell.pp.ua/api/v1/schedules'
-curl -i 'https://dtek.daniell.pp.ua/api/v1/schedules?group=1.1'
-curl -i 'https://dtek.daniell.pp.ua/api/v1/schedules?date=2026-11-14&group=1.1'
-curl -i 'https://dtek.daniell.pp.ua/api/v1/schedules?group=1.1&format=slots'
+curl -i 'https://yesvitlo.pp.ua/api/v1/schedules'
+curl -i 'https://yesvitlo.pp.ua/api/v1/schedules?group=1.1'
+curl -i 'https://yesvitlo.pp.ua/api/v1/schedules?date=2026-11-14&group=1.1'
+curl -i 'https://yesvitlo.pp.ua/api/v1/schedules?group=1.1&format=slots'
 ```
 
 Дата в останньому прикладі ілюстративна: замініть її на сьогодні або завтра за київським часом.

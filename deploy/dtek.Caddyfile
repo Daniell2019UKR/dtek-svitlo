@@ -1,4 +1,4 @@
-dtek.daniell.pp.ua {
+yesvitlo.pp.ua {
     reverse_proxy dtek-web:3000 {
         header_up X-Dtek-Client-IP {client_ip}
         transport http {
