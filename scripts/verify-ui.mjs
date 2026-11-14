@@ -68,8 +68,10 @@ try {
  assert.match(await page.locator('#emergency-status').textContent(),/Актуальність зараз не підтверджено/);
  fixture.emergency.stale=false;
  fixture.error='Не вдалося отримати графік';
+ fixture.emergency.kind='unplanned';
  await page.reload();await page.waitForSelector('#emergency:not([hidden])');
- assert.match(await page.locator('#emergency-status').textContent(),/Актуальність зараз не підтверджено/);
+ assert.match(await page.locator('#emergency-title').textContent(),/Аварійні/);
+ assert.match(await page.locator('#emergency-status').textContent(),/Перевірено/);
  fixture.error=null;fixture.emergency={active:false,message:null,areas:[]};
 
  fixture.current.retainedDates=['2026-11-13'];

@@ -5,6 +5,15 @@ import {extractEmergency} from './emergency.js';
 const page=body=>`<html><main class="discon_schedule">${body}</main><script>DisconSchedule.fact = {"data":{}}; if ($('#modal-attention').length) MicroModal.show('modal-attention');</script></html>`;
 const modal=body=>`<div id="modal-attention" class="modal" aria-hidden="true"><div class="modal__container"><h2>Увага!</h2><div class="modal__body">${body}</div><button>Закрити</button></div></div>`;
 
+test('recognizes a district outage without an explicit emergency keyword',()=>{
+ const notice='Через пошкодження мережі зникло світло в частині <strong>Подільського</strong> району області. Фахівці працюють над відновленням.';
+ const alert=extractEmergency(page(modal(notice)));
+ assert.equal(alert.active,true);
+ assert.equal(alert.kind,'unplanned');
+ assert.deepEqual(alert.areas,['частині Подільського району']);
+ assert.equal(extractEmergency(page(modal(notice+' Електропостачання відновлено.'))).active,false);
+});
+
 test('does not mistake FAQ, scripts, templates or standard schedule hints for a current emergency',()=>{
  const body='<p>Чим відрізняються екстрені відключення?</p><div class="discon-schedule-alert">Екстрені відключення</div><template>'+modal('Екстрені відключення')+'</template><div id="modal-attention" hidden>Екстрені відключення</div><script>const sample = '+JSON.stringify(modal('Екстрені відключення'))+';</script>';
  assert.deepEqual(extractEmergency(page(body)),{active:false,message:null,areas:[]});

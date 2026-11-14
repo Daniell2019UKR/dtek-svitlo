@@ -199,6 +199,19 @@ test('emergency metadata-only changes, inactive updates and unknown status do no
  assert.equal(f.calls.filter(call=>call.method==='sendMessage'||call.method==='sendPhoto').length,0);
 });
 
+test('district outage alerts go to enabled subscribers without a selected schedule and are not repeated',async t=>{
+ const f=await setup(t);
+ f.setUpdates([incoming(1,'/start')]);await f.bot.pollOnce({timeout:0});
+ f.calls.length=0;
+ const before={...snapshot(),emergency:{active:false}};
+ const after={...snapshot(),emergency:{active:true,kind:'unplanned',message:'Зникло світло в частині Подільського району.'}};
+ await f.bot.notify(before,after);await f.bot.flush();
+ await f.bot.notify(after,{...after,emergency:{...after.emergency,checkedAt:fixedNow.toISOString()}});await f.bot.flush();
+ const messages=f.calls.filter(call=>call.method==='sendMessage');
+ assert.equal(messages.length,1);
+ assert.match(messages[0].payload.text,/Аварійні відключення.*\n.*Подільського/);
+});
+
 test('image HTML keeps unknown slots distinct, filters groups, and escapes source text',()=>{
  const current=day();current.groups['1.1'][47]=null;
  const html=buildScheduleHtml({day:current,selectedGroups:['1.1'],now:fixedNow,emergency:{active:true,text:'<script>alert(1)</script>'}});

@@ -37,6 +37,7 @@ telegram.start();
 async function poll(){
  const oldSnapshot=snapshot();
  let route=await selector.take();
+ let noticeRead=false;
  try{
   let next;
   try{next=await scrape(region,{proxyUrl:route.proxyUrl});}
@@ -47,6 +48,7 @@ async function poll(){
    route={name:'direct'};next=await scrape(region);
   }
   state.checkedAt=new Date().toISOString();
+  noticeRead=next.emergency.active!==null;
   if(next.emergency.active!==null)state.emergency={...next.emergency,checkedAt:state.checkedAt,stale:false};
   else state.emergency={...state.emergency,stale:true};
   if(next.days.length){
@@ -58,11 +60,11 @@ async function poll(){
     state.current.sourceUpdatedAt=next.sourceUpdatedAt;state.current.retainedDates=next.retainedDates;
    }
    state.lastSuccess=state.checkedAt;state.error=null;
-  }else state.error='ДТЕК повідомив про екстрені відключення. Плановий графік може не діяти; показуємо збережені дані.';
+  }else state.error='ДТЕК не надав актуальний плановий графік. Показуємо збережені дані.';
  }catch{
   state.checkedAt=new Date().toISOString();
   state.error='Не вдалося отримати графік ДТЕК. Показуємо останні збережені дані.';
-  state.emergency={...state.emergency,stale:true};
+  if(!noticeRead)state.emergency={...state.emergency,stale:true};
   console.error(`DTEK fetch failed via ${route.name}; saved schedules preserved.`);
  }
  await save();

@@ -13,7 +13,7 @@ const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('h
 const unwrap=snapshot=>snapshot?.current??snapshot;
 const alertOf=snapshot=>snapshot?.emergency??unwrap(snapshot)?.emergency??null;
 const semanticAlert=alert=>({active:typeof alert?.active==='boolean'?alert.active:null,
- text:alert?.text||alert?.message||'',areas:alert?.areas??[]});
+ kind:alert?.kind??'emergency',text:alert?.text||alert?.message||'',areas:alert?.areas??[]});
 const clone=value=>JSON.parse(JSON.stringify(value));
 
 export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fetchImpl=fetch,renderImage=renderScheduleImage,now=()=>new Date(),chatIds=process.env.TELEGRAM_CHAT_IDS||'',initialGroups=process.env.TELEGRAM_GROUPS||'',identityRetryMs=60000}) {
@@ -170,15 +170,17 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
    const old=unwrap(oldSnapshot),next=unwrap(nextSnapshot);
    const dates=scheduleDates(now());
    for(const [chat,subscription] of Object.entries(state.subscriptions)) {
-    if(!subscription.enabled||subscription.groups===null)continue;
-    const selected=subscription.groups.length?subscription.groups:allGroups;
+    if(!subscription.enabled)continue;
     const oldAlert=semanticAlert(alertOf(oldSnapshot)),nextAlert=semanticAlert(alertOf(nextSnapshot));
     // Freshness timestamps are not announcements. Unknown source status must not
     // be interpreted as an explicit end to an emergency.
     if(nextAlert.active!==null&&(oldAlert.active===true||nextAlert.active===true)&&digest(oldAlert)!==digest(nextAlert)) {
      const alert=alertOf(nextSnapshot);
-     message(chat,alert?.active?`⚠ Екстрені відключення\n${alert.text||alert.message||'ДТЕК повідомив про екстрені відключення. Плановий графік може не діяти.'}${link}`:`Повідомлення ДТЕК про екстрені відключення оновлено.${link}`);
+     const heading=nextAlert.kind==='unplanned'?'Аварійні відключення':nextAlert.kind==='mixed'?'Аварійні та екстрені відключення':'Екстрені відключення';
+     message(chat,alert?.active?`⚠ ${heading}\n${nextAlert.text||'ДТЕК повідомив про відключення.'}${link}`:`ДТЕК прибрав попереднє попередження про відключення. Стан за адресою перевіряйте у ДТЕК.${link}`);
     }
+    if(subscription.groups===null)continue;
+    const selected=subscription.groups.length?subscription.groups:allGroups;
     for(const day of next?.days||[]) {
      if(!dates.includes(day.date))continue;
      const before=old?.days?.find(before=>before.date===day.date);

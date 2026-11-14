@@ -68,7 +68,7 @@ export async function scrape(region, {proxyUrl, fetchImpl=fetch, browserType} = 
       return result(raw,initialHtml);
     }
     try {
-      await page.waitForFunction(()=>(typeof DisconSchedule!=='undefined'&&DisconSchedule.fact?.data)||/екстрен|экстрен|emergency/i.test(document.querySelector('#modal-attention')?.textContent||''),{timeout:15000});
+      await page.waitForFunction(()=>(typeof DisconSchedule!=='undefined'&&DisconSchedule.fact?.data)||document.querySelector('#modal-attention .m-attention__text')?.textContent?.trim(),null,{timeout:15000});
     }catch(error){if(extractEmergency(await page.content()).active!==true)throw error;}
     const raw=await page.evaluate(()=>typeof DisconSchedule!=='undefined'?DisconSchedule.fact:null);
     return result(raw,await page.content());

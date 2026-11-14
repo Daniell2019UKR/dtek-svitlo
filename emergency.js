@@ -63,6 +63,7 @@ export function extractEmergency(html) {
  if(!attention.found)return recognized?{active:false,message:null,areas:[]}:unknown;
  const message=attention.text;
  const emergency=/\b(?:emergency)\b|екстрен(?:і|их|ні|них|е|ого|ий)|экстрен(?:ные|ных|ное)/i.test(message);
+ const unplanned=/(?:аварійн\p{L}*\s+(?:відключен\p{L}*|знеструмлен\p{L}*)|зникло\s+світло|залишил\p{L}*\s+без\s+світла|відсутн\p{L}*\s+електропостачання|знеструмлен[оіа])/iu.test(message);
  // A notice may cancel outages in one district while introducing them in
  // another. An explicit active declaration always wins over cancellation;
  // do not apply a cancellation word to the entire regional announcement.
@@ -74,9 +75,12 @@ export function extractEmergency(html) {
  // Explicit cancellation with no competing active declaration removes the
  // banner. Uncertain mixed wording stays visible with the full source text.
  const cancelled=/(?:екстрен[\p{L}]*\s+відключен[\p{L}]*.{0,45}(?:скасовано|скасовані|не\s+застосовуються|завершено|припинено|відмінено))|(?:(?:скасовано|скасовані|не\s+застосовуються|завершено|припинено|відмінено|відбій).{0,45}екстрен[\p{L}]*\s+відключен)/iu.test(message);
- if(!emergency||(cancelled&&!activeDeclaration))return {active:false,message:null,areas:[]};
+ const emergencyActive=emergency&&(!cancelled||activeDeclaration);
+ const restored=/(?:аварійн\p{L}*\s+відключен\p{L}*\s+(?:скасован\p{L}*|завершен\p{L}*)|електропостачання\s+(?:повністю\s+)?відновлено|відновлено\s+електропостачання)/iu.test(message);
+ const unplannedActive=unplanned&&!restored;
+ if(!emergencyActive&&!unplannedActive)return {active:false,message:null,areas:[]};
  // Keep geographic wording exactly as published instead of inventing an area
  // list from the subscriber's power group (groups cannot identify districts).
- const areas=[...message.matchAll(/(?:^|[\s.!?])[УуВв]\s+([\p{L}’'ʼ-]+(?:\s+(?:та|і|й)\s+[\p{L}’'ʼ-]+|,\s*[\p{L}’'ʼ-]+)*\s+район(?:і|ах|у|ів|и))/gu)].map(match=>match[1]);
- return {active:true,message,areas:[...new Set(areas)]};
+ const areas=[...message.matchAll(/(?:^|[\s.!?])[УуВв]\s+((?:частині\s+)?[\p{L}’'ʼ-]+(?:\s+(?:та|і|й)\s+[\p{L}’'ʼ-]+|,\s*[\p{L}’'ʼ-]+)*\s+район(?:і|ах|у|ів|и))/gu)].map(match=>match[1]);
+ return {active:true,kind:emergencyActive?(unplannedActive?'mixed':'emergency'):'unplanned',message,areas:[...new Set(areas)]};
 }

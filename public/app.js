@@ -33,15 +33,18 @@ function mobileIntervals(slots, previous){
  return list;
 }
 
+const outageTitle=warning=>warning.kind==='unplanned'?'Аварійні відключення':warning.kind==='mixed'?'Аварійні та екстрені відключення':'Екстрені відключення';
+
 function renderEmergency(now){
  const warning=data.emergency;
  const banner=$('#emergency');
  banner.hidden=warning?.active!==true;
- const old=warning?.stale||connectionError||data.error||!Number.isFinite(Date.parse(warning?.checkedAt))||now-new Date(warning.checkedAt)>Math.max(300000,(data.api?.refreshIntervalSeconds||120)*3000);
- setText('#emergency-check',warning?.active!==true&&(warning?.active==null||old)?'Статус екстрених відключень наразі не підтверджено.':'');
+ const old=warning?.stale||connectionError||!Number.isFinite(Date.parse(warning?.checkedAt))||now-new Date(warning.checkedAt)>Math.max(300000,(data.api?.refreshIntervalSeconds||120)*3000);
+ setText('#emergency-check',warning?.active!==true&&(warning?.active==null||old)?'Статус аварійних та екстрених відключень наразі не підтверджено.':'');
  if(warning?.active!==true)return;
  // Keep unchanged live-region text in place so polling does not repeatedly
  // announce the same emergency to screen-reader users.
+ setText('#emergency-title',outageTitle(warning));
  setText('#emergency-message',warning.message||'ДТЕК повідомляє про екстрені відключення.');
  setText('#emergency-areas',warning.areas?.length?`Зазначені території: ${warning.areas.join('; ')}`:'');
  setText('#emergency-status',old?'Останнє збережене повідомлення. Актуальність зараз не підтверджено.':`Перевірено: ${time(warning.checkedAt)}`);
@@ -103,7 +106,7 @@ function render(){
  renderEmergency(now);
  const relevant=data.current?.days.some(day=>dates.includes(day.date));
  const stale=!data.lastSuccess||now-new Date(data.lastSuccess)>300000;
- $('#badge').textContent=data.emergency?.active?'Екстрені відключення':connectionError||data.error||stale||!relevant?'Дані не оновлено':data.current?.retainedDates?.some(date=>dates.includes(date))?'Є збережені дані':'Актуальний графік';
+ $('#badge').textContent=data.emergency?.active?outageTitle(data.emergency):connectionError||data.error||stale||!relevant?'Дані не оновлено':data.current?.retainedDates?.some(date=>dates.includes(date))?'Є збережені дані':'Актуальний графік';
  $('#badge').classList.toggle('emergency-badge',data.emergency?.active===true);
  $('#updated').textContent=`Перевірено: ${time(data.checkedAt)} · Отримано: ${time(data.lastSuccess)}`;
  $('#api-status').textContent=data.api?.nextRefreshAt?`Наступна перевірка джерела: ${time(data.api.nextRefreshAt)}. Запити до API читають збережений графік.`:'';
