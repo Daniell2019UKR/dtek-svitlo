@@ -28,7 +28,6 @@ regionSelect.onchange=()=>{
  region=regionSelect.value;remember('region',region);restoreGroup(region);
  data=null;$('#chart').replaceChildren();$('#emergency').hidden=true;$('#my-group').hidden=true;
  $('#region').textContent=regionNames[region];$('#source').removeAttribute('href');
- $('#data-source').hidden=true;
  $('#public-api').href='/api/v1/schedules?region='+region;
  $('#notice').textContent='Завантажуємо графік…';$('#badge').textContent='Очікуємо дані';$('#badge').classList.remove('emergency-badge');
  $('#emergency-check').textContent='';$('#updated').textContent='';$('#api-status').textContent='';
@@ -180,9 +179,6 @@ function renderDay(date, today, now){
 function render(){
  if(!data)return;
  $('#region').textContent=regionNames[data.region]||data.region;$('#source').href=data.source;$('#public-api').href='/api/v1/schedules?region='+data.region;
- const feed=$('#data-source');
- feed.hidden=!data.dataSource||data.dataSource===data.source;
- if(!feed.hidden)feed.href=data.dataSource;
  $('#notice').textContent=connectionError?'Немає зв’язку із сервером. Показуємо останній збережений графік.':data.error||'';
  const now=new Date();const dates=scheduleDates(now);
  renderEmergency(now);
