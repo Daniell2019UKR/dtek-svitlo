@@ -1,4 +1,4 @@
-# Світло — графіки ДТЕК на сьогодні та завтра
+# єСвітло — графіки ДТЕК на сьогодні та завтра
 
 Вебсайт і Telegram-бот для перегляду графіків відключень ДТЕК. Сервер регулярно отримує дані джерела, зберігає останній відомий графік і роздає його сайту та API. Клієнтам не потрібно самостійно парсити сайт ДТЕК.
 
@@ -21,8 +21,8 @@
 Потрібні Docker Engine, плагін Docker Compose і доступ до сайтів ДТЕК. Образ містить Node.js та системний Chromium для сторінок, які потребують браузерного завантаження.
 
 ```sh
-git clone https://github.com/Daniell2019UKR/dtek-svitlo.git
-cd dtek-svitlo
+git clone https://github.com/Daniell2019UKR/esvitlo.git
+cd esvitlo
 cp .env.example .env
 # За потреби змініть REGION, PORT та параметри Telegram у .env.
 docker compose up -d --build

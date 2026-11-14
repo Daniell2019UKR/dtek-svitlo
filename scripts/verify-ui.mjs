@@ -46,7 +46,7 @@ try {
  await page.reload();await page.waitForSelector('.track');
  assert.equal(await page.locator('#group').inputValue(),'2.1');
  assert.equal(await page.locator('.track').count(),2);
- assert.equal(await page.locator('a[href="https://github.com/Daniell2019UKR/dtek-svitlo"]').count(),1);
+ assert.equal(await page.locator('a[href="https://github.com/Daniell2019UKR/esvitlo"]').count(),1);
  assert.equal(await page.locator('#telegram a').getAttribute('href'),'https://t.me/dtekschedule_bot');
  assert.match(await page.locator('#api-status').textContent(),/21:17|22:17/);
  await page.setViewportSize({width:390,height:844});

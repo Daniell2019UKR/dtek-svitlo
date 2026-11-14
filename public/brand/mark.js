@@ -7,5 +7,5 @@ const x=512-(10.7421875+563.4765625/2)*scale;
 const y=512-(-750.9765625+985.83984375/2)*scale;
 
 export function brandSvg({background=false,size=1024}={}) {
- return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1024 1024" role="img" aria-label="Світло">${background?'<rect width="1024" height="1024" fill="#101725"/>':''}<path fill="#48df87" transform="translate(${x.toFixed(6)} ${y.toFixed(6)}) scale(${scale.toFixed(9)})" d="${path}"/></svg>`;
+ return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1024 1024" role="img" aria-label="єСвітло">${background?'<rect width="1024" height="1024" fill="#101725"/>':''}<path fill="#48df87" transform="translate(${x.toFixed(6)} ${y.toFixed(6)}) scale(${scale.toFixed(9)})" d="${path}"/></svg>`;
 }

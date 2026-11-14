@@ -3,8 +3,8 @@
 ## Звичайний Docker Compose
 
 ```sh
-git clone https://github.com/Daniell2019UKR/dtek-svitlo.git
-cd dtek-svitlo
+git clone https://github.com/Daniell2019UKR/esvitlo.git
+cd esvitlo
 cp .env.example .env
 docker compose up -d --build
 ```
