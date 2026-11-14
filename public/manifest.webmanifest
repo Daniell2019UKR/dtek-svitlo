@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "єСвітло · Графік відключень",
+  "short_name": "єСвітло",
+  "lang": "uk",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#101725",
+  "background_color": "#101725",
+  "icons": [
+    {"src": "/brand/app-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/brand/app-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}

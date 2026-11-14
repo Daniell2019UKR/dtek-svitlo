@@ -7,8 +7,10 @@ const server=http.createServer(async(req,res)=>{
  try {
   const path=new URL(req.url,'http://localhost').pathname;
   const files={'/':'index.html','/app.js':'app.js','/dates.js':'dates.js','/regions.js':'regions.js','/style.css':'style.css','/brand/logo.svg':'brand/logo.svg','/brand/favicon.svg':'brand/favicon.svg'};
+  for(const asset of ['sw.js','manifest.webmanifest','brand/app-192.png','brand/app-512.png'])files['/'+asset]=asset;
   if(!files[path]) {res.writeHead(404);res.end();return;}
-  res.writeHead(200,{'Content-Type':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.svg')?'image/svg+xml':'text/html; charset=utf-8'});
+  const types={js:'text/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',webmanifest:'application/manifest+json'};
+  res.writeHead(200,{'Content-Type':types[path.split('.').at(-1)]??'text/html; charset=utf-8'});
   res.end(await readFile(new URL(`../public/${files[path]}`,import.meta.url)));
  } catch {res.writeHead(500);res.end();}
 });
@@ -131,5 +133,17 @@ try {
  await page.selectOption('#region-select','o');
  await page.waitForSelector('.track');
  assert.equal(await page.locator('#group').inputValue(),'2.1');
+ if(!process.env.UI_URL){
+  await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
+  const response=await page.request.get(new URL('/manifest.webmanifest',page.url()).href);
+  assert.equal((await response.json()).display,'standalone');
+  await page.unroute(/\/api\/schedule(?:\?.*)?$/);
+  await page.context().setOffline(true);
+  await page.reload();
+  await page.waitForSelector('.track');
+  assert.match(await page.locator('#notice').textContent(),/останній збережений графік/);
+  assert.equal(await page.locator('#group').inputValue(),'2.1');
+  await page.context().setOffline(false);
+ }
  console.log('UI passed: both dates, persistent group filter, GitHub/bot links, mobile layout without horizontal scrolling, emergency and stale warning, cached/unpublished days, Kyiv midnight; no browser errors.');
 } finally {await browser.close();server.close();}

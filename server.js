@@ -101,8 +101,11 @@ async function poll(region){
 }
 
 const files=Object.assign(Object.create(null),{'/':'index.html','/style.css':'style.css','/app.js':'app.js','/dates.js':'dates.js','/regions.js':'regions.js'});
+files['/manifest.webmanifest']='manifest.webmanifest';
+files['/sw.js']='sw.js';
+for(const size of [192,512])files[`/brand/app-${size}.png`]=`brand/app-${size}.png`;
 for(const asset of ['favicon.svg','favicon.png','logo.svg','avatar.png','logo-transparent.png'])files[`/brand/${asset}`]=`brand/${asset}`;
-const mimeTypes={js:'text/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',html:'text/html; charset=utf-8'};
+const mimeTypes={js:'text/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',html:'text/html; charset=utf-8',webmanifest:'application/manifest+json'};
 const assets=new Map(await Promise.all(Object.entries(files).map(async ([path,file])=>[path,{
  type:mimeTypes[file.split('.').at(-1)],body:await readFile(new URL(`./public/${file}`,import.meta.url))
 }])));
@@ -122,7 +125,7 @@ function allowApiRequest(req){
 const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAliveTimeout:5000,maxHeaderSize:8192,connectionsCheckingInterval:1000},(req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');
  res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');
- res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
+ res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
  try{
   if(req.url.length>2048){res.writeHead(414);res.end();return;}
   const url=new URL(req.url,'http://localhost');const path=url.pathname;
@@ -164,6 +167,7 @@ const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAl
   if(path==='/health'){res.writeHead(200);res.end(req.method==='HEAD'?'':'ok');return;}
   const asset=assets.get(path);
   if(!asset){res.writeHead(404);res.end();return;}
+  if(path==='/sw.js')res.setHeader('Cache-Control','no-cache');
   res.writeHead(200,{'Content-Type':asset.type,'Content-Length':asset.body.length});
   res.end(req.method==='HEAD'?'':asset.body);
  }catch{if(!res.headersSent)res.writeHead(500);res.end('Server error');}

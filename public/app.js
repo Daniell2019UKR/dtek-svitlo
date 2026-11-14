@@ -183,7 +183,7 @@ function render(){
  const feed=$('#data-source');
  feed.hidden=!data.dataSource||data.dataSource===data.source;
  if(!feed.hidden)feed.href=data.dataSource;
- $('#notice').textContent=connectionError?'Немає зв’язку із сервером. Повторюємо спробу автоматично.':data.error||'';
+ $('#notice').textContent=connectionError?'Немає зв’язку із сервером. Показуємо останній збережений графік.':data.error||'';
  const now=new Date();const dates=scheduleDates(now);
  renderEmergency(now);
  const relevant=data.current?.days.some(day=>dates.includes(day.date));
@@ -214,11 +214,28 @@ async function load(){
   const legacy=!region;
   if(!region){region=next.region;regionSelect.value=region;}
   restoreGroup(region,legacy,next);
+  if(next.current?.days?.length) {
+   remember('offline-schedule:'+region,JSON.stringify(next));
+   remember('offline-default-region',region);
+  }
   data=next;connectionError=false;render();
  }catch{
   if(version!==requestVersion)return;
   connectionError=true;
+  if(!data){
+   const cachedRegion=region||stored('offline-default-region');
+   if(isRegion(cachedRegion)){
+    try{
+     const cached=JSON.parse(stored('offline-schedule:'+cachedRegion)||'null');
+     if(cached?.region===cachedRegion&&cached.current?.days?.some(day=>scheduleDates().includes(day.date))){
+      region=cachedRegion;regionSelect.value=region;restoreGroup(region,false,cached);data=cached;
+     }
+    }catch{/* Cached schedules may be missing or invalid. */}
+   }
+  }
   if(data)render();else $('#notice').textContent='Немає зв’язку із сервером. Повторюємо спробу автоматично.';
  }
 }
 load();setInterval(load,15000);setInterval(render,30000);
+window.addEventListener('online',()=>void load());
+if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
