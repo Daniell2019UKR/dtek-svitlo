@@ -11,6 +11,7 @@ const alertOf=snapshot=>snapshot?.emergency??unwrap(snapshot)?.emergency??null;
 const semanticAlert=alert=>({active:typeof alert?.active==='boolean'?alert.active:null,
  kind:alert?.kind??'emergency',text:alert?.text||alert?.message||'',areas:alert?.areas??[]});
 const clone=value=>JSON.parse(JSON.stringify(value));
+const messageDate=date=>date.split('-').reverse().join('-');
 
 export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fetchImpl=fetch,renderImage=renderScheduleImage,now=()=>new Date(),chatIds=process.env.TELEGRAM_CHAT_IDS||'',initialGroups=process.env.TELEGRAM_GROUPS||'',identityRetryMs=60000,defaultRegion='o'}) {
  if(!token) return {enabled:false,getUsername:()=>null,start(){},async stop(){},async notify(){},async flush(){},async pollOnce(){}};
@@ -82,7 +83,7 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
   const sent=new Set();
   for(const day of current.days.filter(day=>dates.includes(day.date))) {
    const cached=snapshot?.error||current.retainedDates?.includes(day.date);
-   const caption=`⚡ ${region} · ${day.date} · ${subscription.groups.length?`черга ${subscription.groups.join(', ')}`:'усі черги'}${cached?'\nЗбережений графік · актуальність не підтверджено.':''}`;
+   const caption=`⚡ ${region} · ${messageDate(day.date)} · ${subscription.groups.length?`черга ${subscription.groups.join(', ')}`:'усі черги'}${cached?'\nЗбережений графік · актуальність не підтверджено.':''}`;
    if(photo(chat,day,snapshot?.previous?.days?.find(before=>before.date===day.date),snapshot,subscription.groups,caption))sent.add(day.date);
   }
   if(!sent.size)message(chat,`${region} · Для вибраних черг немає графіків на сьогодні та завтра. /group — змінити чергу.`);
@@ -232,7 +233,11 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
      const selected=subscription.groups.length?subscription.groups:sortGroups([...Object.keys(day.groups),...Object.keys(before?.groups??{})]);
      const changed=selected.filter(group=>digest(before?.groups?.[group]??null)!==digest(day.groups?.[group]??null));
      if(!changed.length)continue;
-     photo(chat,day,before,nextSnapshot,subscription.groups,`⚡ Графік оновлено · ${regionNames[region]} · ${day.date}\nЗмінилися черги: ${changed.join(', ')}`);
+     const date=messageDate(day.date);
+     const caption=day.date===dates[1]&&!before
+      ?`⚡ Додано графік на ${date} · ${regionNames[region]}`
+      :`⚡ Графік оновлено · ${regionNames[region]} · ${date}\nЗмінилися черги: ${changed.join(', ')}`;
+     photo(chat,day,before,nextSnapshot,subscription.groups,caption);
     }
    }
    await persist();

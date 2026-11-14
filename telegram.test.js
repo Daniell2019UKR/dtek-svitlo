@@ -175,6 +175,18 @@ test('changed schedules send photos only to chats selecting affected groups',asy
  assert.deepEqual(f.calls.filter(call=>call.method==='sendPhoto').map(call=>call.payload.chat_id),['42']);
  assert.equal(f.images.length,1);assert.deepEqual(f.images[0].selectedGroups,['1.1']);
  assert.deepEqual(f.images[0].previousDay,before.current.days[0]);
+ assert.match(f.calls.find(c=>c.method==='sendPhoto').payload.caption,/Графік оновлено.*13-11-2026\nЗмінилися черги: 1\.1/u);
+});
+
+test('first publication of tomorrow uses its own caption and date format',async t=>{
+ const f=await setup(t);
+ f.setUpdates([incoming(1,'/group 1.1')]);await f.bot.pollOnce({timeout:0});
+ assert.match(f.calls.find(c=>c.method==='sendPhoto').payload.caption,/13-11-2026/);
+ f.calls.length=0;
+ const before={region:'o',current:{days:[day()]}};
+ await f.bot.notify(before,snapshot());await f.bot.flush();
+ const captions=f.calls.filter(c=>c.method==='sendPhoto').map(c=>c.payload.caption);
+ assert.deepEqual(captions,['⚡ Додано графік на 14-11-2026 · Одеса та область']);
 });
 
 test('/stop clears queued schedules, disables future notifications, and /start restores selection',async t=>{
