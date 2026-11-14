@@ -1,4 +1,4 @@
-import {scheduleDates, currentSlot, outageHours, changedRanges} from './dates.js';
+import {scheduleDates, currentSlot, outageHours, changedRanges} from './dates.js?v=outline-colors';
 
 const $=s=>document.querySelector(s);
 const names={o:'Одеса та область',k:'Київ',kr:'Київська область',dn:'Дніпропетровська область',d:'Донецька область'};
