@@ -2,12 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalize, mergeSchedules, scrape} from './schedule.js';
 import {scheduleDates, currentSlot, outageHours} from './public/dates.js';
+import {scrapeRegional} from './regional-sources.js';
 test('DTEK half-hour states and unknown hours',()=>{
  const [day]=normalize({data:{1794520800:{'GPV1.1':{'1':'yes','2':'no','3':'first','4':'second'}}}});
  assert.deepEqual(day.groups['1.1'].slice(0,10),[true,true,false,false,false,true,true,false,null,null]);
  assert.equal(day.groups['1.1'].length,48);assert.equal(Object.keys(day.groups).length,12);
 });
 test('missing data must not replace last good schedule',()=>{assert.throws(()=>normalize({data:{}}));});
+test('regional feed keeps operator queues and carries uncertainty without inventing schedules',async()=>{
+ const now=new Date('2026-11-14T12:00:00Z');
+ const today=Date.parse('2026-11-14T00:00:00+02:00')/1000;
+ const payload={regionId:'kyiv',meta:{schemaVersion:'1.0.0'},mirroredAt:now.toISOString(),fact:{
+  emergency:[today],emergencyNote:'У Дарницькому районі введено аварійні відключення.',
+  data:{[today]:{'GPV60.1':{1:'mfirst',2:'msecond',3:'no'}},[today-86400]:{'GPV60.1':{1:'no'}}}
+ }};
+ const fetchImpl=async url=>Response.json(url.endsWith('index.json')?{regions:[{id:'kyiv',hasSchedule:true}]}:payload);
+ const result=await scrapeRegional('k',{fetchImpl,now});
+ assert.deepEqual(result.days.map(day=>day.date),['2026-11-14']);
+ assert.deepEqual(Object.keys(result.days[0].groups),['60.1']);
+ assert.deepEqual(result.days[0].groups['60.1'].slice(0,6),[null,true,true,null,false,false]);
+ assert.equal(result.emergency.kind,'unplanned');
+ assert.deepEqual(result.emergency.areas,['Дарницькому районі']);
+ payload.fact.data={};
+ assert.deepEqual((await scrapeRegional('k',{fetchImpl,now})).days,[]);
+ const stale=async url=>Response.json(url.endsWith('index.json')?{regions:[{id:'kyiv',stale:true}]}:payload);
+ assert.equal((await scrapeRegional('k',{fetchImpl:stale,now})).emergency.active,null);
+});
 import {extractFact} from './schedule.js';
 test('extracts fact JSON without consuming following scripts',()=>{
  assert.deepEqual(extractFact('DisconSchedule.fact = {"data":{},"update":"brace } and \\\" quote"}; other = {};'),{data:{},update:'brace } and " quote'});

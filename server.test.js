@@ -46,7 +46,8 @@ test('HTTP API reads one saved snapshot; clients never trigger upstream parsing'
   const internal=await (await fetch(`http://127.0.0.1:${port}/api/schedule`)).json();
   assert.equal(internal.telegramEnabled,false);assert.equal('pending' in internal,false);
   const catalog=await (await fetch(new URL('/api/v1/regions',url))).json();
-  assert.deepEqual(catalog.regions.map(region=>region.code),['o','k','kr','dn','d']);
+  assert.equal(catalog.regions.length,24);
+  assert.ok(catalog.regions.some(region=>region.code==='mykolaiv'&&region.source==='https://off.energy.mk.ua/'));
   assert.equal((await fetch(url+'?region=o&region=k')).status,400);
   assert.equal((await fetch(url+'?region=constructor')).status,400);
   const kyiv=await (await fetch(new URL('/api/schedule?region=k',url))).json();

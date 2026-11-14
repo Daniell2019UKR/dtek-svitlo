@@ -8,6 +8,8 @@ import {schedulesResponse} from './api.js';
 import {createTransportSelector} from './transport.js';
 import {createTelegram} from './telegram.js';
 import {regionNames,isRegion} from './public/regions.js';
+import {regionalSources,scrapeRegional} from './regional-sources.js';
+import {scheduleDates} from './public/dates.js';
 
 const defaultRegion=process.env.REGION||'o';
 const regions=Object.keys(regionNames);
@@ -39,13 +41,13 @@ async function save(region){
  await rename(path+'.tmp',path+'.json');
 }
 const hash=value=>createHash('sha256').update(JSON.stringify(value??null)).digest('hex');
-const selectors=new Map(regions.map(region=>[region,createTransportSelector({proxyUrl:process.env.DTEK_PROXY_URL,healthUrl:process.env.DTEK_PROXY_HEALTH_URL,retrySeconds})]));
+const selectors=new Map(Object.keys(shutdownsPages).map(region=>[region,createTransportSelector({proxyUrl:process.env.DTEK_PROXY_URL,healthUrl:process.env.DTEK_PROXY_HEALTH_URL,retrySeconds})]));
 const refreshTimes=new Map();
 let telegram;
 function snapshot(region=defaultRegion){
  const state=states.get(region);
  const {current,previous,checkedAt,lastSuccess,error,emergency}=state;
- return {current,previous,checkedAt,lastSuccess,error,emergency,region,source:shutdownsPages[region],telegramEnabled:Boolean(telegram?.enabled),telegramUsername:telegram?.getUsername()||null,
+ return {current,previous,checkedAt,lastSuccess,error,emergency,region,source:regionalSources[region],dataSource:current?.dataSource??regionalSources[region],telegramEnabled:Boolean(telegram?.enabled),telegramUsername:telegram?.getUsername()||null,
  api:{endpoint:'/api/v1/schedules',refreshIntervalSeconds:intervalSeconds,nextRefreshAt:refreshTimes.get(region)??null}};
 }
 telegram=await createTelegram({token:process.env.TELEGRAM_BOT_TOKEN,dataDir:dir,defaultRegion,getSnapshot:snapshot,publicUrl:process.env.PUBLIC_URL||''});
@@ -55,16 +57,24 @@ async function poll(region){
  const state=states.get(region);
  const selector=selectors.get(region);
  const oldSnapshot=snapshot(region);
- let route=await selector.take();
  let noticeRead=false;
  try{
   let next;
-  try{next=await scrape(region,{proxyUrl:route.proxyUrl});}
-  catch(error){
-   selector.failed(route);
-   if(route.name!=='vpn')throw error;
-   console.warn('VPN source request failed; retrying directly.');
-   route={name:'direct'};next=await scrape(region);
+  if(selector){
+   const route=await selector.take();
+   try{next=await scrape(region,{proxyUrl:route.proxyUrl});}
+   catch{
+    selector.failed(route);
+    if(route.name==='vpn'){
+     try{next=await scrape(region);}catch{/* Try the regional feed below. */}
+    }
+   }
+  }
+  const dates=scheduleDates();
+  if(!next?.days.some(day=>dates.includes(day.date))){
+   const regional=await scrapeRegional(region);
+   next={...regional,emergency:next?.emergency.active===true?next.emergency:
+    regional.emergency.active===true?regional.emergency:next?.emergency??regional.emergency};
   }
   state.checkedAt=new Date().toISOString();
   noticeRead=next.emergency.active!==null;
@@ -76,15 +86,15 @@ async function poll(region){
    if(hash(next.days)!==hash(state.current?.days)){
     state.previous=state.current;state.current={...next,receivedAt:state.checkedAt};
    }else{
-    state.current.sourceUpdatedAt=next.sourceUpdatedAt;state.current.retainedDates=next.retainedDates;
+    state.current.sourceUpdatedAt=next.sourceUpdatedAt;state.current.retainedDates=next.retainedDates;state.current.dataSource=next.dataSource;
    }
    state.lastSuccess=state.checkedAt;state.error=null;
-  }else state.error='ДТЕК не надав актуальний плановий графік. Показуємо збережені дані.';
+  }else state.error='Актуальний плановий графік недоступний. Якщо є збережені дані, показуємо їх.';
  }catch{
   state.checkedAt=new Date().toISOString();
-  state.error='Не вдалося отримати графік ДТЕК. Показуємо останні збережені дані.';
+  state.error='Не вдалося отримати графік відключень.';
   if(!noticeRead)state.emergency={...state.emergency,stale:true};
-  console.error(`DTEK fetch failed via ${route.name}; saved schedules preserved.`);
+  console.error(`Schedule fetch failed for ${region}; saved schedules preserved.`);
  }
  await save(region);
  await telegram.notify(oldSnapshot,snapshot(region));
@@ -130,7 +140,7 @@ const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAl
   if(!['GET','HEAD'].includes(req.method)){res.writeHead(405,{'Allow':'GET, HEAD'});res.end();return;}
   if(path==='/api/v1/regions'){
    res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'public, max-age=300'});
-   res.end(req.method==='HEAD'?'':JSON.stringify({defaultRegion,regions:regions.map(code=>({code,name:regionNames[code],source:shutdownsPages[code]}))}));return;
+   res.end(req.method==='HEAD'?'':JSON.stringify({defaultRegion,regions:regions.map(code=>({code,name:regionNames[code],source:regionalSources[code]}))}));return;
   }
   if(path==='/api/v1/schedules'||path==='/api/schedule'){
    const codes=url.searchParams.getAll('region');

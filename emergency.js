@@ -61,7 +61,10 @@ export function extractEmergency(html) {
  if(attention.found&&!attention.finished)return unknown;
  const recognized=/DisconSchedule\.fact\s*=\s*\{/.test(html)||(/class=["'][^"']*discon_schedule/.test(html)&&/MicroModal\.show\(['"]modal-attention['"]\)/.test(html));
  if(!attention.found)return recognized?{active:false,message:null,areas:[]}:unknown;
- const message=attention.text;
+ return classifyEmergency(attention.text);
+}
+
+export function classifyEmergency(message) {
  const emergency=/\b(?:emergency)\b|екстрен(?:і|их|ні|них|е|ого|ий)|экстрен(?:ные|ных|ное)/i.test(message);
  const unplanned=/(?:аварійн\p{L}*\s+(?:відключен\p{L}*|знеструмлен\p{L}*)|зникло\s+світло|залишил\p{L}*\s+без\s+світла|відсутн\p{L}*\s+електропостачання|знеструмлен[оіа])/iu.test(message);
  // A notice may cancel outages in one district while introducing them in

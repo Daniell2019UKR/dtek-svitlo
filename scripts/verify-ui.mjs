@@ -127,6 +127,7 @@ try {
  assert.equal(await page.locator('#group').inputValue(),'');
  assert.equal(await page.locator('#emergency').isVisible(),false);
  assert.equal(await page.locator('#public-api').getAttribute('href'),'/api/v1/schedules?region=k');
+ assert.equal(await page.locator('#group option[value="60.1"]').count(),1);
  await page.selectOption('#region-select','o');
  await page.waitForSelector('.track');
  assert.equal(await page.locator('#group').inputValue(),'2.1');

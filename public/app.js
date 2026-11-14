@@ -1,4 +1,4 @@
-import {regionNames,isRegion} from './regions.js';
+import {regionNames,isRegion,availableGroups} from './regions.js?v=regional';
 import {scheduleDates, currentSlot, outageHours, changedRanges} from './dates.js?v=outline-colors';
 
 const $=s=>document.querySelector(s);
@@ -11,18 +11,24 @@ region=isRegion(requested)?requested:isRegion(stored('region'))?stored('region')
 const regionSelect=$('#region-select');
 for(const [code,name] of Object.entries(regionNames))regionSelect.add(new Option(name,code));
 if(region)regionSelect.value=region;
-for(let i=0;i<12;i++){const g=Math.floor(i/2)+1+'.'+(i%2+1);$('#group').add(new Option(g,g));}
-function restoreGroup(code, legacy=false){
+function restoreGroup(code, legacy=false,snapshot={region:code}){
+ const select=$('#group');
+ const groups=availableGroups(snapshot);
+ if([...select.options].slice(1).map(option=>option.value).join(',')!==groups.join(',')){
+  select.replaceChildren(new Option('Усі групи',''),...groups.map(group=>new Option(group,group)));
+ }
  filter=stored('group:'+code)||(legacy?stored('group'):'');
- if(![...$('#group').options].some(option=>option.value===filter))filter='';
- $('#group').value=filter;
+ if(legacy&&filter)remember('group:'+code,filter);
+ if(!groups.includes(filter))filter='';
+ select.value=filter;
 }
-if(region)restoreGroup(region);
+restoreGroup(region);
 $('#group').onchange=e=>{filter=e.target.value;if(region)remember('group:'+region,filter);render();};
 regionSelect.onchange=()=>{
  region=regionSelect.value;remember('region',region);restoreGroup(region);
  data=null;$('#chart').replaceChildren();$('#emergency').hidden=true;$('#my-group').hidden=true;
  $('#region').textContent=regionNames[region];$('#source').removeAttribute('href');
+ $('#data-source').hidden=true;
  $('#public-api').href='/api/v1/schedules?region='+region;
  $('#notice').textContent='Завантажуємо графік…';$('#badge').textContent='Очікуємо дані';$('#badge').classList.remove('emergency-badge');
  $('#emergency-check').textContent='';$('#updated').textContent='';$('#api-status').textContent='';
@@ -91,7 +97,7 @@ function renderEmergency(now){
  // Keep unchanged live-region text in place so polling does not repeatedly
  // announce the same emergency to screen-reader users.
  setText('#emergency-title',outageTitle(warning));
- setText('#emergency-message',warning.message||'ДТЕК повідомляє про екстрені відключення.');
+ setText('#emergency-message',warning.message||'Оператор повідомляє про екстрені відключення.');
  setText('#emergency-areas',warning.areas?.length?`Зазначені території: ${warning.areas.join('; ')}`:'');
  setText('#emergency-status',old?'Останнє збережене повідомлення. Актуальність зараз не підтверджено.':`Перевірено: ${time(warning.checkedAt)}`);
  $('#emergency-source').href=data.source;
@@ -111,7 +117,7 @@ function renderDay(date, today, now){
  heading.append(status);section.append(heading);
  if(!current){
   const empty=document.createElement('p');empty.className='empty';
-  empty.textContent=`ДТЕК ще не опублікував графік на ${today?'сьогодні':'завтра'}.`;
+  empty.textContent=`Графік на ${today?'сьогодні':'завтра'} наразі недоступний.`;
   section.append(empty);return section;
  }
  const scroll=document.createElement('div');scroll.className='scroll';
@@ -174,6 +180,9 @@ function renderDay(date, today, now){
 function render(){
  if(!data)return;
  $('#region').textContent=regionNames[data.region]||data.region;$('#source').href=data.source;$('#public-api').href='/api/v1/schedules?region='+data.region;
+ const feed=$('#data-source');
+ feed.hidden=!data.dataSource||data.dataSource===data.source;
+ if(!feed.hidden)feed.href=data.dataSource;
  $('#notice').textContent=connectionError?'Немає зв’язку із сервером. Повторюємо спробу автоматично.':data.error||'';
  const now=new Date();const dates=scheduleDates(now);
  renderEmergency(now);
@@ -202,7 +211,9 @@ async function load(){
   if(!r.ok)throw Error('Schedule unavailable');
   const next=await r.json();
   if(version!==requestVersion)return;
-  if(!region){region=next.region;regionSelect.value=region;restoreGroup(region,true);}
+  const legacy=!region;
+  if(!region){region=next.region;regionSelect.value=region;}
+  restoreGroup(region,legacy,next);
   data=next;connectionError=false;render();
  }catch{
   if(version!==requestVersion)return;

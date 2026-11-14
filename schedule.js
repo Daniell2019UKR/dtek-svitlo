@@ -1,25 +1,29 @@
 import { PowerState, shutdownsPages } from './vendor/constants.js';
 import { scheduleDates } from './public/dates.js';
 import {extractEmergency} from './emergency.js';
-export const groups = Array.from({length:12},(_,i)=>`${Math.floor(i/2)+1}.${i%2+1}`);
-export function normalize(raw) {
+import {standardGroups,isGroup,sortGroups} from './public/regions.js';
+export const groups=standardGroups;
+export function normalize(raw,{onlyPublished=false,includeGroup=()=>true}={}) {
   const days = Object.entries(raw?.data ?? {}).filter(([timestamp, data]) =>
     /^\d+$/.test(timestamp) && Number.isFinite(new Date(Number(timestamp)*1000).getTime()) && data && typeof data === 'object'
   ).sort(([a],[b])=>Number(a)-Number(b)).map(([timestamp, data])=>({
     date:new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv'}).format(new Date(Number(timestamp)*1000)),
-    groups:Object.fromEntries(groups.map(group=>[group,Array.from({length:24},(_,hour)=>{
+    groups:Object.fromEntries(sortGroups([
+      ...(onlyPublished?[]:groups),
+      ...Object.keys(data).filter(key=>key.startsWith('GPV')&&isGroup(key.slice(3))).map(key=>key.slice(3))
+    ]).filter(includeGroup).map(group=>[group,Array.from({length:24},(_,hour)=>{
       const state=data[`GPV${group}`]?.[hour+1];
-      switch(state){case PowerState.ON:return [true,true];case PowerState.OFF:return [false,false];case PowerState.HALF_ON:return [true,false];case PowerState.HALF_OFF:return [false,true];default:return [null,null];}
+      switch(state){case PowerState.ON:return [true,true];case PowerState.OFF:return [false,false];case PowerState.HALF_ON:return [true,false];case PowerState.HALF_OFF:return [false,true];case 'mfirst':return [null,true];case 'msecond':return [true,null];default:return [null,null];}
     }).flat()]))
   })).filter(d=>Object.values(d.groups).some(s=>s.some(v=>v!==null)));
-  if(!days.length) throw Error('ДТЕК не опублікував розпізнаваний графік');
+  if(!days.length) throw Error('Джерело не опублікувало розпізнаваний графік');
   return days;
 }
 
 export function mergeSchedules(incoming, saved = [], now = new Date()) {
   const dates = scheduleDates(now);
   const fresh = incoming.filter(day => dates.includes(day.date));
-  if (!fresh.length) throw Error('ДТЕК не опублікував графік на сьогодні або завтра');
+  if (!fresh.length) throw Error('Джерело не опублікувало графік на сьогодні або завтра');
   const retainedDates = [];
   const days = dates.flatMap(date => {
     const day = fresh.find(day => day.date === date);
@@ -47,7 +51,7 @@ export async function scrape(region, {proxyUrl, fetchImpl=fetch, browserType} = 
   const result=(raw,html)=>{
     const emergency=extractEmergency(html);
     let days=[];
-    try {days=normalize(raw);}catch(error){if(emergency.active!==true)throw error;}
+    try {days=normalize(raw,{onlyPublished:region==='k',includeGroup:group=>region!=='k'||group.endsWith('.1')});}catch(error){if(emergency.active!==true)throw error;}
     return {days,sourceUpdatedAt:raw?.update??null,emergency};
   };
   try {

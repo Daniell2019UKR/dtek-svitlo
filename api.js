@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {groups} from './schedule.js';
+import {availableGroups} from './public/regions.js';
 import {scheduleDates} from './public/dates.js';
 
 const slotTime=index=>`${String(Math.floor(index/2)).padStart(2,'0')}:${index%2?'30':'00'}`;
@@ -41,7 +41,7 @@ export function schedulesResponse(url, snapshot, options = {}) {
   if(parameters.some(key=>!['region','date','group','format'].includes(key))||new Set(parameters).size!==parameters.length)return fail(400,'Use unique region, date, group or format parameters');
   const format=url.searchParams.get('format')??'compact';
   if(!['compact','slots'].includes(format))return fail(400,'Invalid format; expected compact or slots');
-  if (group !== null && !groups.includes(group)) return fail(400,'Invalid group; expected 1.1–6.2');
+  if (group !== null && !availableGroups(snapshot).includes(group)) return fail(400,'Invalid group for this region');
   if (date !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`)) || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10)!==date)) return fail(400,'Invalid date; expected YYYY-MM-DD');
   const validDates=scheduleDates(new Date(now));
   let days=(snapshot.current?.days??[]).filter(day=>validDates.includes(day.date));
@@ -52,7 +52,7 @@ export function schedulesResponse(url, snapshot, options = {}) {
   }
   if (date) days=days.filter(day=>day.date===date);
   if (!days.length) return fail(404,'Schedule for this date has not been published');
-  if (group) days=days.map(day=>({...day,groups:{[group]:day.groups[group]}}));
+  if (group) days=days.map(day=>({...day,groups:{[group]:day.groups[group]??Array(48).fill(null)}}));
   const seconds=Math.max(0,Math.ceil((Date.parse(snapshot.api.nextRefreshAt)-now)/1000))||0;
   const stale=Boolean(snapshot.error || !snapshot.lastSuccess || now-Date.parse(snapshot.lastSuccess)>Math.max(300000,snapshot.api.refreshIntervalSeconds*2500));
   const key=JSON.stringify([snapshot.region,validDates,date,group,format,stale]);
@@ -62,7 +62,7 @@ export function schedulesResponse(url, snapshot, options = {}) {
     checkedAt:snapshot.checkedAt,lastSuccess:snapshot.lastSuccess,stale,error:snapshot.error,
     refreshIntervalSeconds:snapshot.api.refreshIntervalSeconds,nextRefreshAt:snapshot.api.nextRefreshAt,
     days:format==='compact'?compactDays(days):days,retainedDates:(snapshot.current.retainedDates??[]).filter(date=>days.some(day=>day.date===date)),
-    emergency:snapshot.emergency,source:snapshot.source};
+    emergency:snapshot.emergency,source:snapshot.source,dataSource:snapshot.dataSource??snapshot.source};
   const body=JSON.stringify(payload);
   const etag='"'+createHash('sha256').update(body).digest('hex')+'"';
   cached={body,etag};
