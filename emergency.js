@@ -65,8 +65,9 @@ export function extractEmergency(html) {
 }
 
 export function classifyEmergency(message) {
- const emergency=/\b(?:emergency)\b|екстрен(?:і|их|ні|них|е|ого|ий)|экстрен(?:ные|ных|ное)/i.test(message);
- const unplanned=/(?:аварійн\p{L}*\s+(?:відключен\p{L}*|знеструмлен\p{L}*)|зникло\s+світло|залишил\p{L}*\s+без\s+світла|відсутн\p{L}*\s+електропостачання|знеструмлен[оіа])/iu.test(message);
+ const declarations=message.replace(/(?:уникнути|уникати|запобігти|недопущення|избежать|предотвратить)\s+(?:можлив[\p{L}]*\s+)?(?:екстрен[\p{L}]*|аварійн[\p{L}]*|экстрен[\p{L}]*|аварийн[\p{L}]*)\s+(?:відключен[\p{L}]*|отключен[\p{L}]*)/giu,'');
+ const emergency=/\b(?:emergency)\b|екстрен(?:і|их|ні|них|е|ого|ий)|экстрен(?:ные|ных|ное)/i.test(declarations);
+ const unplanned=/(?:аварійн\p{L}*\s+(?:відключен\p{L}*|знеструмлен\p{L}*)|зникло\s+світло|залишил\p{L}*\s+без\s+світла|відсутн\p{L}*\s+електропостачання|знеструмлен[оіа])/iu.test(declarations);
  // A notice may cancel outages in one district while introducing them in
  // another. An explicit active declaration always wins over cancellation;
  // do not apply a cancellation word to the entire regional announcement.

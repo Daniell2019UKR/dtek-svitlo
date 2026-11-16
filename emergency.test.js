@@ -5,6 +5,16 @@ import {extractEmergency} from './emergency.js';
 const page=body=>`<html><main class="discon_schedule">${body}</main><script>DisconSchedule.fact = {"data":{}}; if ($('#modal-attention').length) MicroModal.show('modal-attention');</script></html>`;
 const modal=body=>`<div id="modal-attention" class="modal" aria-hidden="true"><div class="modal__container"><h2>Увага!</h2><div class="modal__body">${body}</div><button>Закрити</button></div></div>`;
 
+test('conservation advice does not declare emergency outages or hide a real announcement',()=>{
+ const advice='Шановні клієнти! За наказом НЕК Укренерго сьогодні діють стабілізаційні відключення електроенергії. Будь ласка, розумно споживайте електроенергію — це допоможе зменшити навантаження на мережу та уникнути екстрених відключень.';
+ assert.equal(extractEmergency(page(modal(advice))).active,false);
+ assert.equal(extractEmergency(page(modal(advice.replace('розумно','економно')))).active,false);
+ const active=extractEmergency(page(modal('В Одесі введено екстрені відключення. '+advice)));
+ assert.equal(active.active,true);
+ assert.equal(active.kind,'emergency');
+ assert.equal(extractEmergency(page(modal('Допоможіть запобігти аварійним відключенням.'))).active,false);
+});
+
 test('recognizes a district outage without an explicit emergency keyword',()=>{
  const notice='Через пошкодження мережі зникло світло в частині <strong>Подільського</strong> району області. Фахівці працюють над відновленням.';
  const alert=extractEmergency(page(modal(notice)));
