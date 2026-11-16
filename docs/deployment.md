@@ -4,6 +4,8 @@
 
 Для FCM задайте `FCM_PROJECT_ID` і `FCM_CREDENTIALS_FILE` в локальному `.env` та додайте `-f deploy/compose.fcm.yaml` до чинної команди Compose. Файл ключа облікового запису має лежати поза репозиторієм. Він монтується в контейнер для читання користувачем застосунку. Для надсилання потрібен дозвіл `cloudmessaging.messages.create` у проєкті Firebase.
 
+Сервер перевіряє стабільні Android-релізи на GitHub кожні 30 хвилин, якщо налаштовано FCM. Перший знайдений тег із готовим APK зберігається в `DATA_DIR/android-release-push.txt`. Після виходу нової версії сервер надсилає її тег у FCM-тему `app-updates`.
+
 ## Звичайний Docker Compose
 
 ```sh

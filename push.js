@@ -2,6 +2,8 @@ import {initializeApp,applicationDefault} from 'firebase-admin/app';
 import {getMessaging} from 'firebase-admin/messaging';
 import {noticeType} from './notification-types.js';
 import {scheduleDates} from './public/dates.js';
+import {readFile,rename,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
 
 const normalized=text=>(text??'').normalize('NFC').replace(/[\u00ad\u200b-\u200f\u2060\ufeff]/gu,'').replace(/\s+/gu,' ').trim();
 const displayDate=date=>date.split('-').reverse().join('-');
@@ -32,10 +34,39 @@ export function pushEvents(before,after,now=new Date()){
  return events;
 }
 
-export function createPush(){
+const releaseTag=/^v\d{1,5}\.\d{1,5}\.\d{1,5}$/u;
+function watchAndroidReleases(messaging,dir){
+ const state=join(dir,'android-release-push.txt');
+ async function check(){
+  try {
+   const response=await fetch('https://api.github.com/repos/Daniell2019UKR/esvitlo-android/releases/latest',{
+    headers:{Accept:'application/vnd.github+json','User-Agent':'Esvitlo-Release-Push'},
+    signal:AbortSignal.timeout(15000)
+   });
+   if(!response.ok)throw Error('GitHub release request failed');
+   const release=await response.json();
+   const tag=release.tag_name;
+   if(release.draft||release.prerelease||typeof tag!=='string'||!releaseTag.test(tag)||
+    !release.assets?.some(asset=>asset.state==='uploaded'&&asset.name===`esvitlo-android-${tag.slice(1)}.apk`))return;
+   const previous=await readFile(state,'utf8').catch(error=>{if(error.code!=='ENOENT')throw error;return null;});
+   if(previous&&tag.localeCompare(previous,'en',{numeric:true})<=0)return;
+   if(previous)await messaging.send({
+    topic:'app-updates',data:{type:'app-update',tag},
+    android:{priority:'normal',ttl:24*60*60*1000,collapseKey:'app-update'}
+   });
+   await writeFile(state+'.tmp',tag,{mode:0o600});
+   await rename(state+'.tmp',state);
+  }catch{console.warn('Android release check failed; will retry.');}
+  finally{setTimeout(check,30*60*1000).unref();}
+ }
+ setTimeout(check,15000).unref();
+}
+
+export function createPush(dataDir){
  if(!process.env.FCM_PROJECT_ID)return async()=>{};
  const app=initializeApp({credential:applicationDefault(),projectId:process.env.FCM_PROJECT_ID},'esvitlo-push');
  const messaging=getMessaging(app);
+ if(dataDir)watchAndroidReleases(messaging,dataDir);
  return async(before,after,title)=>{
   const events=pushEvents(before,after);
   for(let offset=0;offset<events.length;offset+=8){

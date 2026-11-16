@@ -13,7 +13,6 @@ import {scheduleDates} from './public/dates.js';
 import {createPush} from './push.js';
 
 const defaultRegion=process.env.REGION||'o';
-const sendPush=createPush();
 const regions=Object.keys(regionNames);
 if(!isRegion(defaultRegion))throw Error('Unknown REGION');
 const intervalSeconds=Number(process.env.POLL_INTERVAL_SECONDS||120);
@@ -21,6 +20,7 @@ if(!Number.isFinite(intervalSeconds)||intervalSeconds<30||intervalSeconds>3600)t
 const retrySeconds=Number(process.env.VPN_RETRY_SECONDS||60);
 if(!Number.isFinite(retrySeconds)||retrySeconds<10)throw Error('VPN_RETRY_SECONDS must be at least 10');
 const dir=process.env.DATA_DIR||'./data';
+const sendPush=createPush(dir);
 await mkdir(dir,{recursive:true});
 const empty=()=>({current:null,previous:null,checkedAt:null,lastSuccess:null,error:null,emergency:{active:null,message:null,areas:[],checkedAt:null,stale:true}});
 const states=new Map();
