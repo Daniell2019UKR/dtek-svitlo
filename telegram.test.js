@@ -52,6 +52,26 @@ async function setup(t,options={}) {
  return {bot,dir,calls,images,base,setUpdates:value=>{updates=value;},setFailure:value=>{failure=value;}};
 }
 
+test('notification preferences silence photos and suppress operator alerts without affecting manual requests',async t=>{
+ const f=await setup(t);
+ const click=(id,data)=>({update_id:id,callback_query:{id:`settings-${id}`,data,message:{chat:{id:42,type:'private'},message_id:77}}});
+ f.setUpdates([incoming(1,'/group 1.1'),incoming(2,'/notifications'),click(3,'notify:schedule:silent'),click(4,'notify:unplanned:off')]);
+ await f.bot.pollOnce({timeout:0});
+ assert.ok(f.calls.some(call=>call.method==='editMessageText'&&call.payload.reply_markup.inline_keyboard
+  .some(([button])=>button.callback_data==='notify:schedule:off')));
+ f.calls.length=0;
+ await f.bot.notify(snapshot(),{...snapshot(),current:{days:[day('2026-11-13',true)]},
+  emergency:{active:true,kind:'unplanned',message:'Зникло світло'}});
+ await f.bot.flush();
+ assert.deepEqual(f.calls.filter(call=>call.method==='sendPhoto').map(call=>call.payload.disable_notification),['true']);
+ assert.equal(f.calls.some(call=>call.method==='sendMessage'),false);
+ f.calls.length=0;
+ f.setUpdates([incoming(5,'/schedule')]);
+ await f.bot.pollOnce({timeout:0});
+ assert.equal(f.calls.filter(call=>call.method==='sendPhoto').length,2);
+ assert.ok(f.calls.filter(call=>call.method==='sendPhoto').every(call=>call.payload.disable_notification===undefined));
+});
+
 test('group members can request graphs but only current admins can change the shared queue',async t=>{
  const f=await setup(t);
  const chat={id:-123,type:'supergroup'};
