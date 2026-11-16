@@ -106,6 +106,7 @@ async function poll(region){
 
 const files=Object.assign(Object.create(null),{'/':'index.html','/style.css':'style.css','/app.js':'app.js','/dates.js':'dates.js','/regions.js':'regions.js'});
 files['/manifest.webmanifest']='manifest.webmanifest';
+files['/privacy.html']='privacy.html';
 files['/sw.js']='sw.js';
 for(const size of [192,512])files[`/brand/app-${size}.png`]=`brand/app-${size}.png`;
 for(const asset of ['favicon.svg','favicon.png','logo.svg','avatar.png','logo-transparent.png'])files[`/brand/${asset}`]=`brand/${asset}`;
