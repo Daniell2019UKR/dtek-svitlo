@@ -68,7 +68,11 @@ regionSelect.onchange=()=>{
 };
 const time=v=>v?new Date(v).toLocaleString('uk-UA',{timeZone:'Europe/Kyiv',dateStyle:'short',timeStyle:'short'}):'—';
 const clock=slot=>`${String(Math.floor(slot/2)).padStart(2,'0')}:${slot%2?'30':'00'}`;
-const hoursText=hours=>new Intl.NumberFormat('uk-UA',{maximumFractionDigits:2}).format(hours);
+function durationText(minutes){
+ const hours=Math.floor(minutes/60), remainder=minutes%60;
+ if(!hours)return `${remainder} хв`;
+ return remainder?`${hours} год ${remainder} хв`:`${hours} год`;
+}
 const setText=(selector,value)=>{const node=$(selector);if(node.textContent!==value)node.textContent=value;};
 
 function renderMyGroup(dates, now, stale){
@@ -115,8 +119,7 @@ function mobileIntervals(slots, previous, slot){
    const state=document.createElement('span');state.textContent=[label,active?'зараз':'',change].filter(Boolean).join(' · ');
    details.append(range,state);
    const duration=document.createElement('span');duration.className='interval-duration';
-   const minutes=(end-start)*30;
-   duration.textContent=[minutes>=60?`${Math.floor(minutes/60)} год`:'',minutes%60?'30 хв':''].filter(Boolean).join(' ');
+   duration.textContent=durationText((end-start)*30);
    item.append(details,duration);
    list.append(item);
   }
@@ -195,8 +198,8 @@ function renderDay(date, today, now){
   row.append(track);
   const total=document.createElement('span');total.className='total';
   const remaining=slots.filter((_,i)=>i+1>slot);
-  const off=outageHours(slots,slot);
-  total.textContent=remaining.every(v=>v===null)?'немає даних':off?`${today?'ще ':''}${hoursText(off)} год${remaining.includes(null)?' + ?':''}`:remaining.includes(null)?'неповні дані':'без відкл.';
+  const offMinutes=Math.round(outageHours(slots,slot)*60);
+  total.textContent=remaining.every(v=>v===null)?'немає даних':offMinutes?`${today?'ще ':''}${durationText(offMinutes)}${remaining.includes(null)?' + ?':''}`:remaining.includes(null)?'неповні дані':'без відкл.';
   const intervals=mobileIntervals(slots,old,today?slot:null);
   row.append(total,intervals);
   if(!filter&&intervals.childElementCount){
