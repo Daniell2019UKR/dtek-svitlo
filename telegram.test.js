@@ -34,6 +34,35 @@ test('regional alerts and graph requests stay within the selected region',async 
  await f.bot.flush();
  assert.deepEqual(f.calls.filter(call=>call.method==='sendMessage').map(call=>call.payload.chat_id),['43']);
 });
+
+test('reminders follow per-location settings, skip continuations and survive restart without duplicates',async t=>{
+ const instant=new Date('2026-11-13T17:15:15Z'); // 19:15 Kyiv
+ const monitor=day();
+ monitor.groups['1.1'].fill(false,39,42);
+ monitor.groups['2.1'].fill(false,38,42);
+ const f=await setup(t,{now:()=>instant,getSnapshot:region=>({region,current:{days:[monitor]}})});
+ f.setUpdates([incoming(1,'/group 1.1'),incoming(2,'/reminder 15'),incoming(3,'/reminder_add Робота | k | 2.1')]);
+ await f.bot.pollOnce({timeout:0});
+ f.calls.length=0;
+ await f.bot.tickReminders();
+ const restarted=await createTelegram(f.base);t.after(()=>restarted.stop());
+ await restarted.tickReminders();
+ const messages=f.calls.filter(call=>call.method==='sendMessage');
+ assert.equal(messages.length,1);
+ assert.match(messages[0].payload.text,/Основна.*1\.1\n.*19:30/);
+});
+
+test('address lookup suggests a queue without changing the saved subscription until confirmed',async t=>{
+ const f=await setup(t,{lookupAddress:async()=>({groups:['2.1']})});
+ f.setUpdates([incoming(1,'/group 1.1'),incoming(2,'/address Місто | Вулиця | 1')]);
+ await f.bot.pollOnce({timeout:0});
+ const state=()=>readFile(join(f.dir,'telegram.json'),'utf8').then(JSON.parse);
+ assert.deepEqual((await state()).subscriptions[42].groups,['1.1']);
+ f.setUpdates([{update_id:3,callback_query:{id:'address',data:'address:o:2.1',
+  message:{chat:{id:42,type:'private'},message_id:77}}}]);
+ await f.bot.pollOnce({timeout:0});
+ assert.deepEqual((await state()).subscriptions[42].groups,['2.1']);
+});
 async function setup(t,options={}) {
  const dir=await mkdtemp(join(tmpdir(),'dtek-telegram-'));t.after(()=>rm(dir,{recursive:true,force:true}));
  let updates=[],failure=null;

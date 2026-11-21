@@ -11,6 +11,7 @@ import {regionNames,isRegion} from './public/regions.js';
 import {regionalSources,scrapeRegional} from './regional-sources.js';
 import {scheduleDates} from './public/dates.js';
 import {createPush} from './push.js';
+import {addressRegions,lookupAddress} from './address-lookup.js';
 
 const defaultRegion=process.env.REGION||'o';
 const regions=Object.keys(regionNames);
@@ -52,7 +53,7 @@ function snapshot(region=defaultRegion){
  return {current,previous,checkedAt,lastSuccess,error,emergency,region,source:regionalSources[region],dataSource:current?.dataSource??regionalSources[region],telegramEnabled:Boolean(telegram?.enabled),telegramUsername:telegram?.getUsername()||null,
  api:{endpoint:'/api/v1/schedules',refreshIntervalSeconds:intervalSeconds,nextRefreshAt:refreshTimes.get(region)??null}};
 }
-telegram=await createTelegram({token:process.env.TELEGRAM_BOT_TOKEN,dataDir:dir,defaultRegion,getSnapshot:snapshot,publicUrl:process.env.PUBLIC_URL||''});
+telegram=await createTelegram({token:process.env.TELEGRAM_BOT_TOKEN,dataDir:dir,defaultRegion,getSnapshot:snapshot,lookupAddress,publicUrl:process.env.PUBLIC_URL||''});
 telegram.start();
 
 async function poll(region){
@@ -127,7 +128,7 @@ function allowApiRequest(req){
  limits.set(address,count+1);apiRequests++;
  return true;
 }
-const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAliveTimeout:5000,maxHeaderSize:8192,connectionsCheckingInterval:1000},(req,res)=>{
+const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAliveTimeout:5000,maxHeaderSize:8192,connectionsCheckingInterval:1000},async (req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');
  res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');
  res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
@@ -136,8 +137,26 @@ const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAl
   const url=new URL(req.url,'http://localhost');const path=url.pathname;
   const publicApi=path==='/api/v1/schedules'||path==='/api/v1/regions';
   if(publicApi)res.setHeader('Access-Control-Allow-Origin','*');
-  if((publicApi||path==='/api/schedule')&&!allowApiRequest(req)){
+  if((publicApi||path==='/api/schedule'||path==='/api/v1/address-queue')&&!allowApiRequest(req)){
    res.writeHead(429,{'Retry-After':String(60-Math.floor(Date.now()/1000)%60),'Cache-Control':'no-store'});res.end();return;
+  }
+  if(path==='/api/v1/address-queue'){
+   const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store'};
+   if(req.method!=='POST'){res.writeHead(405,{...headers,Allow:'POST'});res.end();return;}
+   if(req.headers['transfer-encoding']||!/^[1-9]\d{0,3}$/.test(req.headers['content-length']??'')||
+      Number(req.headers['content-length'])>2048||url.search){
+    res.writeHead(400,{...headers,Connection:'close'});res.end();return;
+   }
+   let input;
+   try{
+    const chunks=[];
+    for await(const chunk of req)chunks.push(chunk);
+    input=JSON.parse(Buffer.concat(chunks));
+    if(!input||typeof input!=='object'||Array.isArray(input))throw Error('Invalid input');
+   }catch{res.writeHead(400,headers);res.end(JSON.stringify({status:'invalid',groups:[]}));return;}
+   const result=await lookupAddress(input.region,input);
+   res.writeHead(result.status==='invalid'?400:200,headers);
+   res.end(JSON.stringify(result));return;
   }
   if(req.headers['transfer-encoding']||(req.headers['content-length']&&req.headers['content-length']!=='0')){
    res.writeHead(400,{'Connection':'close'});res.end();return;
@@ -148,7 +167,7 @@ const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAl
   if(!['GET','HEAD'].includes(req.method)){res.writeHead(405,{'Allow':'GET, HEAD'});res.end();return;}
   if(path==='/api/v1/regions'){
    res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'public, max-age=300'});
-   res.end(req.method==='HEAD'?'':JSON.stringify({defaultRegion,regions:regions.map(code=>({code,name:regionNames[code],source:regionalSources[code]}))}));return;
+   res.end(req.method==='HEAD'?'':JSON.stringify({defaultRegion,regions:regions.map(code=>({code,name:regionNames[code],source:regionalSources[code],addressLookup:addressRegions.includes(code)}))}));return;
   }
   if(path==='/api/v1/schedules'||path==='/api/schedule'){
    const codes=url.searchParams.getAll('region');

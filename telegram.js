@@ -5,6 +5,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {noticeType} from './notification-types.js';
 import {scheduleDates} from './public/dates.js';
 import {renderScheduleImage} from './schedule-image.js';
+import {dueOutage} from './reminders.js';
 
 const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const unwrap=snapshot=>snapshot?.current??snapshot;
@@ -19,7 +20,7 @@ const outageHeading=kind=>kind==='unplanned'?'Аварійні відключе�
 
 const notificationLabels={
  schedule:'Зміни графіка',publication:'Новий графік на завтра',unplanned:'Аварійні відключення',
- emergency:'Екстрені відключення',clearance:'Зняття попередження'
+ emergency:'Екстрені відключення',clearance:'Зняття попередження',reminder:'Нагадування до відключення'
 };
 const modeLabels={sound:'Зі звуком',silent:'Без звуку',off:'Вимкнено'};
 const modes=Object.keys(modeLabels);
@@ -36,7 +37,7 @@ function notificationKeyboard(subscription){
  })};
 }
 
-export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fetchImpl=fetch,renderImage=renderScheduleImage,now=()=>new Date(),chatIds=process.env.TELEGRAM_CHAT_IDS||'',initialGroups=process.env.TELEGRAM_GROUPS||'',identityRetryMs=60000,defaultRegion='o'}) {
+export async function createTelegram({token,dataDir,getSnapshot,lookupAddress,publicUrl='',fetchImpl=fetch,renderImage=renderScheduleImage,now=()=>new Date(),chatIds=process.env.TELEGRAM_CHAT_IDS||'',initialGroups=process.env.TELEGRAM_GROUPS||'',identityRetryMs=60000,defaultRegion='o'}) {
  if(!token) return {enabled:false,getUsername:()=>null,start(){},async stop(){},async notify(){},async flush(){},async pollOnce(){}};
  await mkdir(dataDir,{recursive:true});
  const path=join(dataDir,'telegram.json');
@@ -71,6 +72,66 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
  const link=publicUrl?`\n${publicUrl}`:'';
  const enqueue=event=>state.queue.push({id:randomUUID(),attempts:0,createdAt:now().toISOString(),...event});
  const message=(chat,text,extra={})=>enqueue({type:'message',chat,text,...extra});
+ function reminderPlaces(subscription) {
+  const region=regionOf(subscription);
+  return [...(subscription.groups??[]).map(group=>({name:'Основна',region,group,lead:subscription.primaryLead})),
+   ...(subscription.reminderPlaces??[])];
+ }
+ function reminderSettings(chat,subscription,command,args) {
+  const places=subscription.reminderPlaces??=[];
+  if(command==='/reminder_add'){
+   const [name,region,group]=args.join(' ').split('|').map(value=>value.trim());
+   if(!name||name.length>40||places.length>=12||!isRegion(region)||
+      !availableGroups({...getSnapshot(region),region}).includes(group)){
+    message(chat,'Формат: /reminder_add Назва | код регіону | черга. До 12 додаткових локацій.\n'+
+     Object.entries(regionNames).map(([code,label])=>`${code} — ${label}`).join('\n'));return;
+   }
+   places.push({id:randomUUID(),name,region,group});subscription.reminderPlaces=places;
+  }else if(command==='/reminder_remove'){
+   const index=Number(args[0])-1;
+   if(Number.isInteger(index)&&index>=0&&index<places.length)places.splice(index,1);
+  }else if(args.length){
+   const minutes=args[0]==='off'?0:args[0]==='default'?null:Number(args[0]);
+   const index=args[1]==null?null:Number(args[1]);
+   if ((minutes!==null&&(!/^\d+$|^off$/.test(args[0])||!Number.isInteger(minutes)||minutes<0||minutes>180))||
+       (minutes===null&&index===null)|| (index!==null&&(!Number.isInteger(index)||index<0||index>places.length))){
+    message(chat,'Вкажіть 1–180 хвилин, off або default для окремої локації.');return;
+   }
+   if(index===null)subscription.reminderLead=minutes;
+   else if(index===0)subscription.primaryLead=minutes;
+   else places[index-1].lead=minutes;
+  }
+  const status=lead=>lead?`${lead} хв`:'вимкнено';
+  message(chat,`Нагадування для всіх: ${status(subscription.reminderLead)}\n`+
+   `0 · Основна · ${status(subscription.primaryLead??subscription.reminderLead)}\n`+
+   places.map((place,i)=>`${i+1} · ${place.name} · ${regionNames[place.region]} · ${place.group} · ${status(place.lead??subscription.reminderLead)}\n`).join('')+
+   '\n/reminder 15 — для всіх\n/reminder 30 1 — для локації 1\n/reminder off 1 — вимкнути для локації 1\n/reminder default 1 — як для всіх\n/reminder_add Назва | регіон | черга\n/reminder_remove 1');
+ }
+ async function tickReminders(){
+  await locked(async()=>{
+   const instant=now();
+   let added=false;
+   for(const [chat,sub] of Object.entries(state.subscriptions)){
+    if(!sub.enabled||sub.shared||notificationMode(sub,'reminder')==='off')continue;
+    const seen=sub.remindersSent??={};
+    for(const [key,start] of Object.entries(seen))if(start+86400000<instant.getTime())delete seen[key];
+    for(const place of reminderPlaces(sub)){
+     const lead=place.lead??sub.reminderLead;
+     if(!lead)continue;
+     const due=dueOutage(getSnapshot(place.region),place.group,lead,instant);
+     if(!due)continue;
+     const key=JSON.stringify([place.id??'primary',place.region,place.group,due.date,due.time]);
+     if(seen[key])continue;
+     seen[key]=due.start;
+     message(chat,`⚡ ${place.name} · черга ${place.group}\nЗа графіком світла не буде з ${due.time} (${messageDate(due.date)})`,
+      {notificationType:'reminder',reminder:{...place,lead,start:due.start}});
+     added=true;
+    }
+   }
+   if(added)await persist();
+  });
+  await flush();
+ }
  function photo(chat,day,before,snapshot,selectedGroups,caption,notificationType) {
   if(selectedGroups.length&&!selectedGroups.some(group=>Object.hasOwn(day.groups,group)))return false;
   enqueue({type:'photo',chat,day:clone(day),previousDay:before?clone(before):null,
@@ -227,6 +288,18 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
       notificationSettings(key,subscription,text,incoming.message_id);
      } else if(command==='/notifications') {
       notificationSettings(key,subscription);
+     } else if(['/reminder','/reminder_add','/reminder_remove'].includes(command)) {
+      reminderSettings(key,subscription,command,args);
+     } else if(command==='/address') {
+      const [city,street,house]=args.join(' ').split('|').map(value=>value.trim());
+      const result=await lookupAddress?.(regionOf(subscription),{city,street,house});
+      const groups=(result?.groups??[]).filter(group=>groupsFor(subscription).includes(group));
+      if(groups.length)message(key,'Оператор пропонує чергу. Підтвердьте вибір або скористайтеся /group.',
+       {replyMarkup:{inline_keyboard:[groups.map(group=>({text:group,callback_data:`address:${regionOf(subscription)}:${group}`}))]}});
+      else message(key,'Чергу не визначено. /address Населений пункт | Вулиця | Будинок або /group для ручного вибору.');
+     } else if(update.callback_query&&text.startsWith('address:')) {
+      const [,region,group]=text.split(':');
+      if(region===regionOf(subscription)&&groupsFor(subscription).includes(group))selectGroup(key,subscription,group,incoming.message_id);
      } else if(command==='/stop') {
       subscription.enabled=false;
       state.queue=state.queue.filter(event=>event.chat!==key||event.type==='callback');
@@ -284,6 +357,12 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
   void flush().catch(()=>console.warn('Telegram queue could not be saved; will retry (credentials omitted).'));
  }
  async function send(event) {
+  if(event.reminder){
+   const sub=state.subscriptions[event.chat], r=event.reminder, instant=now();
+   if(!sub?.enabled||!reminderPlaces(sub).some(p=>(p.id??null)===(r.id??null)&&p.region===r.region&&
+    p.group===r.group&&(p.lead??sub.reminderLead)===r.lead)||
+    dueOutage(getSnapshot(r.region),r.group,r.lead,instant)?.start!==r.start)return;
+  }
   const mode=event.notificationType?notificationMode(state.subscriptions[event.chat],event.notificationType):'sound';
   if(mode==='off')return;
   if(event.type==='callback')return api('answerCallbackQuery',{callback_query_id:event.callbackId,...(event.text?{text:event.text,show_alert:true}:{})});
@@ -336,7 +415,7 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
     try {
      const identity=await api('getMe',{});
      await locked(async()=>{state.username=identity.username||null;await persist();});
-     await api('setMyCommands',{commands:[{command:'start',description:'Увімкнути сповіщення'},{command:'region',description:'Обрати регіон'},{command:'group',description:'Обрати свою групу'},{command:'schedule',description:'Графіки на сьогодні та завтра'},{command:'notifications',description:'Налаштувати типи та звук сповіщень'},{command:'stop',description:'Вимкнути сповіщення'}]});
+     await api('setMyCommands',{commands:[{command:'start',description:'Увімкнути сповіщення'},{command:'region',description:'Обрати регіон'},{command:'group',description:'Обрати свою групу'},{command:'schedule',description:'Графіки на сьогодні та завтра'},{command:'notifications',description:'Налаштувати типи та звук сповіщень'},{command:'reminder',description:'Нагадування за хвилини до відключення'},{command:'address',description:'Знайти чергу за адресою'},{command:'stop',description:'Вимкнути сповіщення'}]});
      commandsReady=true;
     } catch {if(running)console.warn('Telegram bot identity unavailable; will retry (credentials omitted).');}
    }
@@ -346,10 +425,11 @@ export async function createTelegram({token,dataDir,getSnapshot,publicUrl='',fet
    if(running)await new Promise(resolve=>{retryResolve=resolve;retryTimer=setTimeout(()=>{retryResolve=null;retryTimer=null;resolve();},1000);retryTimer.unref?.();});
   }
  }
+ let reminderTimer;
  return {
   enabled:true,getUsername:()=>state.username,
-  start(){if(!running){running=true;loopPromise=run();}},
-  async stop(){running=false;for(const controller of controllers)controller.abort();if(retryTimer){clearTimeout(retryTimer);retryTimer=null;retryResolve?.();retryResolve=null;}await Promise.allSettled([loopPromise,flushing].filter(Boolean));await serial;},
-  notify,flush,pollOnce
+  start(){if(!running){running=true;loopPromise=run();reminderTimer=setInterval(()=>void tickReminders().catch(()=>console.warn('Reminder check failed.')),15000);reminderTimer.unref();}},
+  async stop(){running=false;clearInterval(reminderTimer);for(const controller of controllers)controller.abort();if(retryTimer){clearTimeout(retryTimer);retryTimer=null;retryResolve?.();retryResolve=null;}await Promise.allSettled([loopPromise,flushing].filter(Boolean));await serial;},
+  notify,flush,pollOnce,tickReminders
  };
 }
