@@ -15,6 +15,10 @@ test('HTTP API reads one saved snapshot; clients never trigger upstream parsing'
  const preload=`import {appendFile} from 'node:fs/promises';
  const real=globalThis.fetch;
  globalThis.fetch=async(url,options)=>{
+  if(String(url).startsWith('https://cek.dp.ua/')&&String(url).includes('viznachennya-chergy')){
+   await new Promise(resolve=>setTimeout(resolve,300));
+   return new Response('const locations = '+JSON.stringify({Test:{Street:{'8':'5.2'}}})+';');
+  }
   if(!String(url).includes('dtek-'))return real(url,options);
   await appendFile(process.env.TEST_FETCH_COUNTER,'request\\n');
   const {scheduleDates}=await import(${JSON.stringify(new URL('./public/dates.js',import.meta.url).href)});
@@ -22,7 +26,7 @@ test('HTTP API reads one saved snapshot; clients never trigger upstream parsing'
   return new Response('DisconSchedule.fact = '+JSON.stringify({data,update:'fixture'})+';');
  };`;
  const child=spawn(process.execPath,['--import','data:text/javascript,'+encodeURIComponent(preload),'server.js'],{
-  cwd:new URL('.',import.meta.url),env:{...process.env,PORT:String(port),DATA_DIR:dir,TEST_FETCH_COUNTER:counter,TELEGRAM_BOT_TOKEN:'',DTEK_PROXY_URL:'',DTEK_PROXY_HEALTH_URL:'',POLL_INTERVAL_SECONDS:'120'},stdio:['ignore','pipe','pipe']
+  cwd:new URL('.',import.meta.url),env:{...process.env,PORT:String(port),DATA_DIR:dir,TEST_FETCH_COUNTER:counter,TELEGRAM_BOT_TOKEN:'',DTEK_PROXY_URL:'',DTEK_PROXY_HEALTH_URL:'',POLL_INTERVAL_SECONDS:'120',TRUST_CADDY:'0'},stdio:['ignore','pipe','pipe']
  });
  let errors='';child.stderr.on('data',data=>{errors+=data;});
  try{
@@ -56,6 +60,30 @@ test('HTTP API reads one saved snapshot; clients never trigger upstream parsing'
   const unavailable=await fetch(url+'?region=k');
   assert.equal(unavailable.status,503);
   assert.equal((await unavailable.json()).region,'k');
+
+  const lookup=new URL('/api/v1/address-queue',url);
+  const input={region:'cek',city:'Test',street:'Street',house:'8'};
+  const post=(body=input,headers={})=>fetch(lookup,{method:'POST',
+   headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+  assert.equal((await fetch(lookup)).status,405);
+  assert.equal((await fetch(lookup,{method:'OPTIONS'})).headers.get('access-control-allow-methods'),'POST');
+  assert.equal((await post({...input,region:'constructor'})).status,400);
+  assert.equal((await post({...input,house:'8'.repeat(2100)})).status,413);
+  assert.equal((await post(input,{'Content-Type':'text/plain'})).status,415);
+  const searches=await Promise.all(Array.from({length:4},()=>post()));
+  assert.deepEqual(searches.map(result=>result.status).sort(),[200,200,200,429]);
+  const match=searches.find(result=>result.ok);
+  assert.deepEqual((await match.json()).groups,['5.2']);
+  assert.match(match.headers.get('cache-control'),/no-store/);
+  assert.equal((await (await post({...input,region:'k'})).json()).status,'unsupported');
+  let limited;
+  for(let attempt=0;attempt<22;attempt++){
+   limited=await post({...input,region:'k'},{'X-Dtek-Client-IP':'192.0.2.'+(attempt+1)});
+   if(limited.status===429)break;
+  }
+  assert.equal(limited.status,429);
+  assert.ok(Number(limited.headers.get('retry-after'))>0);
+  assert.equal((await fetch(url)).status,200);
  }finally{
   child.kill();await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',resolve);});
   await rm(dir,{recursive:true,force:true});

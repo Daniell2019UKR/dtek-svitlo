@@ -116,17 +116,67 @@ const assets=new Map(await Promise.all(Object.entries(files).map(async ([path,fi
  type:mimeTypes[file.split('.').at(-1)],body:await readFile(new URL(`./public/${file}`,import.meta.url))
 }])));
 const apiCaches=new Map();
-const limits=new Map();
-let minute=-1, apiRequests=0;
-function allowApiRequest(req){
- const window=Math.floor(Date.now()/60000);
- if(window!==minute){minute=window;limits.clear();apiRequests=0;}
+function clientAddress(req){
  const forwarded=req.headers['x-dtek-client-ip'];
- const address=process.env.TRUST_CADDY==='1'&&typeof forwarded==='string'&&isIP(forwarded)?forwarded:req.socket.remoteAddress;
- const count=limits.get(address)??0;
- if(count>=120||apiRequests>=2400)return false;
- limits.set(address,count+1);apiRequests++;
- return true;
+ return process.env.TRUST_CADDY==='1'&&typeof forwarded==='string'&&isIP(forwarded)?forwarded:req.socket.remoteAddress;
+}
+function rateLimiter(perClient, total){
+ const clients=new Map();
+ let minute=-1, requests=0;
+ return req=>{
+  const window=Math.floor(Date.now()/60000);
+  if(window!==minute){minute=window;clients.clear();requests=0;}
+  const address=clientAddress(req);
+  const count=clients.get(address)??0;
+  if(count>=perClient||requests>=total)return false;
+  clients.set(address,count+1);requests++;
+  return true;
+ };
+}
+const allowApiRequest=rateLimiter(120,2400);
+const allowAddressRequest=rateLimiter(10,60);
+const addressFields=['region','city','street','house'];
+let runningAddressRequests=0;
+async function handleAddress(req,res,url){
+ const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store',
+  'Access-Control-Allow-Origin':'*','Access-Control-Expose-Headers':'Retry-After'};
+ const respond=(code,result,extra)=>{res.writeHead(code,{...headers,...extra});res.end(JSON.stringify(result));};
+ if(req.method==='OPTIONS'&&!url.search&&!req.headers['transfer-encoding']&&
+    (!req.headers['content-length']||req.headers['content-length']==='0')){
+  res.writeHead(204,{...headers,'Access-Control-Allow-Methods':'POST',
+   'Access-Control-Allow-Headers':'Content-Type','Access-Control-Max-Age':'600'});
+  res.end();return;
+ }
+ const reject=(code,status,extra)=>respond(code,{status,groups:[]},{Connection:'close',...extra});
+ if(req.method!=='POST'){reject(405,'method_not_allowed',{Allow:'POST, OPTIONS'});return;}
+ if(!allowAddressRequest(req)){
+  reject(429,'rate_limited',{'Retry-After':String(60-Math.floor(Date.now()/1000)%60)});return;
+ }
+ if(req.headers['transfer-encoding']||url.search||
+    !/^[1-9]\d{0,3}$/.test(req.headers['content-length']??'')){
+  reject(400,'invalid');return;
+ }
+ if(Number(req.headers['content-length'])>2048){reject(413,'too_large');return;}
+ if(req.headers['content-encoding']||
+    !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(req.headers['content-type']??'')){
+  reject(415,'unsupported_media_type');return;
+ }
+ let input;
+ try{
+  const chunks=[];
+  for await(const chunk of req)chunks.push(chunk);
+  input=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length!==addressFields.length||
+     addressFields.some(key=>typeof input[key]!=='string'||!input[key].trim()||
+      input[key].length>100||/[\u0000-\u001f\u007f]/u.test(input[key]))||!isRegion(input.region))throw Error('Invalid input');
+ }catch{reject(400,'invalid');return;}
+ if(!addressRegions.includes(input.region)){respond(200,{status:'unsupported',groups:[]});return;}
+ if(runningAddressRequests>=3){reject(429,'rate_limited',{'Retry-After':'5'});return;}
+ runningAddressRequests++;
+ try{
+  const result=await lookupAddress(input.region,input);
+  respond(result.status==='invalid'?400:200,result);
+ }finally{runningAddressRequests--;}
 }
 const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAliveTimeout:5000,maxHeaderSize:8192,connectionsCheckingInterval:1000},async (req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');
@@ -137,27 +187,10 @@ const server=http.createServer({headersTimeout:10000,requestTimeout:15000,keepAl
   const url=new URL(req.url,'http://localhost');const path=url.pathname;
   const publicApi=path==='/api/v1/schedules'||path==='/api/v1/regions';
   if(publicApi)res.setHeader('Access-Control-Allow-Origin','*');
-  if((publicApi||path==='/api/schedule'||path==='/api/v1/address-queue')&&!allowApiRequest(req)){
+  if((publicApi||path==='/api/schedule')&&!allowApiRequest(req)){
    res.writeHead(429,{'Retry-After':String(60-Math.floor(Date.now()/1000)%60),'Cache-Control':'no-store'});res.end();return;
   }
-  if(path==='/api/v1/address-queue'){
-   const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store'};
-   if(req.method!=='POST'){res.writeHead(405,{...headers,Allow:'POST'});res.end();return;}
-   if(req.headers['transfer-encoding']||!/^[1-9]\d{0,3}$/.test(req.headers['content-length']??'')||
-      Number(req.headers['content-length'])>2048||url.search){
-    res.writeHead(400,{...headers,Connection:'close'});res.end();return;
-   }
-   let input;
-   try{
-    const chunks=[];
-    for await(const chunk of req)chunks.push(chunk);
-    input=JSON.parse(Buffer.concat(chunks));
-    if(!input||typeof input!=='object'||Array.isArray(input))throw Error('Invalid input');
-   }catch{res.writeHead(400,headers);res.end(JSON.stringify({status:'invalid',groups:[]}));return;}
-   const result=await lookupAddress(input.region,input);
-   res.writeHead(result.status==='invalid'?400:200,headers);
-   res.end(JSON.stringify(result));return;
-  }
+  if(path==='/api/v1/address-queue'){await handleAddress(req,res,url);return;}
   if(req.headers['transfer-encoding']||(req.headers['content-length']&&req.headers['content-length']!=='0')){
    res.writeHead(400,{'Connection':'close'});res.end();return;
   }
